@@ -1,5 +1,11 @@
 # Crimson Harbor — a 3D open-world crime game (make.fun gta6-01)
 
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
+Entered in [make.fun's "Make GTA 6" bounty](https://make.fun/bounty/gta6-01).
+
 An original open-world crime game in the spirit of GTA 6, built with
 three.js (vendored under `game/vendor/`) and plain static files. Everything
 in it is original: the city, the characters, the vehicles, the story, the
@@ -62,3 +68,7 @@ game, never edited: `?shot=drive`, `?shot=foot`, `?shot=chase`,
 ## License
 
 MIT. See `LICENSE`.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?ref=pmqap4j3&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
