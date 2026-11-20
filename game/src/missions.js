@@ -1,201 +1,234 @@
-// The story: four missions for Mara and the Harbor Garage, with a gold
-// start marker between jobs, a glowing beacon on the current objective,
-// a timer on the delivery run, and a scripted heat spike for the finale.
+// missions.js — Mara's four jobs. Each mission is a list of steps: get
+// in a car, or reach a place. The current step's waypoint gets a light
+// beam and a minimap marker; finishing a mission pays cash, and the next
+// job starts after a short breather. Only the timed Harbor Run can fail,
+// and it simply restarts.
 (function () {
-  var CH = window.CH;
-  var MISSIONS = CH.MISSIONS;
-  var LANDMARKS = CH.LANDMARKS;
+  'use strict';
 
-  function createMissions(scene, city) {
-    // The beacon: a light pillar, a spinning diamond and a ground ring.
-    var beacon = new THREE.Group();
-    var pillar = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.6, 2.2, 30, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
-    );
-    pillar.position.y = 15;
-    var diamond = new THREE.Mesh(
-      new THREE.OctahedronGeometry(1.6),
-      new THREE.MeshBasicMaterial({ color: 0xffd24d })
-    );
-    diamond.position.y = 7;
-    var ring = new THREE.Mesh(
-      new THREE.RingGeometry(3.4, 4.4, 32),
-      new THREE.MeshBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.15;
-    beacon.add(pillar);
-    beacon.add(diamond);
-    beacon.add(ring);
-    beacon.visible = false;
-    scene.add(beacon);
+  var cfg = window.CH.config;
+  var util = window.CH.util;
 
-    var state = {
-      active: null, // { def, step }
-      timer: 0,
-      targetCar: null,
-      storyDone: false,
-      heatPrimed: false,
-    };
+  var sceneRef = null;
+  var hooks = {}; // onBanner, onObjective, onComplete, onFail, onCash,
+  // onStart(mission), onStep(mission, stepIndex), onTimer
+  var beam = null;
+  var ring = null;
+  var state = {
+    index: -1, // -1: none started yet
+    step: 0,
+    active: false,
+    completed: [],
+    timer: 0,
+    breather: 0,
+    failed: false
+  };
 
-    function setBeacon(x, z, colorHex) {
-      beacon.visible = true;
-      beacon.position.set(x, 0, z);
-      pillar.material.color.set(colorHex);
-      diamond.material.color.set(colorHex);
-      ring.material.color.set(colorHex);
-    }
-
-    function hideBeacon() { beacon.visible = false; }
-
-    function objective(world) {
-      if (state.storyDone) return { text: 'Free roam — Crimson Harbor is yours', target: null, kind: null };
-      if (!state.active) {
-        var next = MISSIONS[world.missionsDone];
-        var start = LANDMARKS.garage;
-        return { text: 'Drive to the gold marker to start: ' + next.title, target: { x: start.x, z: start.z }, kind: 'start' };
-      }
-      var step = state.active.def.steps[state.active.step];
-      var target = step.target ? LANDMARKS[step.target] : null;
-      var text = step.text;
-      if (step.kind === 'timed') text += ' — ' + Math.max(0, Math.ceil(state.timer)) + 's';
-      return { text: text, target: target ? { x: target.x, z: target.z } : null, kind: step.kind };
-    }
-
-    function startMission(world, events, id) {
-      var def = MISSIONS[id - 1];
-      state.active = { def: def, step: 0 };
-      state.heatPrimed = false;
-      events.push({ type: 'missionStart', title: def.title, brief: def.brief });
-      if (def.id === 2) spawnTargetCar(world);
-      if (def.id === 4) state.heatPrimed = false;
-    }
-
-    function spawnTargetCar(world) {
-      if (state.targetCar && !state.targetCar.dead) return;
-      var m = LANDMARKS.marina;
-      var car = CH.makeCar(world.scene, 'sports', m.x, m.z, Math.PI / 2, 0xc22a22);
-      car.driver = null;
-      state.targetCar = car;
-      world.cars.push(car);
-    }
-
-    function completeMission(world, events) {
-      var def = state.active.def;
-      world.cash += def.reward;
-      world.missionsDone += 1;
-      state.active = null;
-      state.targetCar = null;
-      events.push({ type: 'missionComplete', title: def.title, reward: def.reward });
-      if (world.missionsDone >= MISSIONS.length) {
-        state.storyDone = true;
-        events.push({ type: 'storyComplete' });
-      }
-      events.push({ type: 'save' });
-    }
-
-    function failMission(world, events, reason) {
-      state.active = null;
-      state.targetCar = null;
-      events.push({ type: 'missionFail', reason: reason });
-    }
-
-    function onEnterCar(car, events) {
-      if (!state.active) return;
-      var step = state.active.def.steps[state.active.step];
-      if (step.kind === 'steal' && car === state.targetCar) {
-        advanceStep(this.world, events);
-      }
-    }
-
-    function advanceStep(world, events) {
-      state.active.step += 1;
-      if (state.active.step >= state.active.def.steps.length) {
-        completeMission(world, events);
-      } else {
-        var next = state.active.def.steps[state.active.step];
-        if (next.kind === 'timed') state.timer = next.seconds;
-        if (next.kind === 'heat' && !state.heatPrimed) {
-          state.heatPrimed = true;
-          world.wanted = 3;
-          events.push({ type: 'wantedUp', stars: 3 });
-        }
-      }
-    }
-
-    function update(dt, world, events) {
-      // Spin the beacon diamond; bob it gently.
-      if (beacon.visible) {
-        diamond.rotation.y += dt * 2;
-        diamond.position.y = 7 + Math.sin(world.time * 1.5) * 0.5;
-      }
-      var player = world.player;
-      var pos = CH.playerPos(world);
-      var px = pos.x;
-      var pz = pos.z;
-
-      if (!state.active) {
-        if (state.storyDone || world.missionsDone >= MISSIONS.length) {
-          hideBeacon();
-          return;
-        }
-        // Between jobs: the gold marker at the garage starts the next one.
-        var start = LANDMARKS.garage;
-        setBeacon(start.x, start.z, 0xffd24d);
-        if (CH.dist(px, pz, start.x, start.z) < 10) {
-          startMission(world, events, world.missionsDone + 1);
-        }
-        return;
-      }
-
-      var step = state.active.def.steps[state.active.step];
-      var target = step.target ? LANDMARKS[step.target] : null;
-      if (target) setBeacon(target.x, target.z, step.kind === 'heat' ? 0xff4444 : 0x35d0ff);
-      else hideBeacon();
-
-      if (step.kind === 'timed') {
-        state.timer -= dt;
-        if (state.timer <= 0) {
-          failMission(world, events, 'Out of time — the client walked.');
-          return;
-        }
-      }
-      if (step.kind === 'heat') {
-        if (world.wanted === 0 && state.heatPrimed) advanceStep(world, events);
-        return;
-      }
-      if (step.kind === 'steal') {
-        // Completes through onEnterCar; keep the beacon on the car.
-        if (state.targetCar) setBeacon(state.targetCar.group.position.x, state.targetCar.group.position.z, 0xff4444);
-        if (state.targetCar && state.targetCar.dead) spawnTargetCar(world);
-        return;
-      }
-      if (step.kind === 'deliverCar') {
-        if (player.car === state.targetCar && target && CH.dist(px, pz, target.x, target.z) < 12) {
-          advanceStep(world, events);
-        }
-        return;
-      }
-      // Plain goto.
-      if (target && CH.dist(px, pz, target.x, target.z) < 10) {
-        if (step.kind === 'goto' && state.active.def.id === 3 && state.active.step === 0) {
-          events.push({ type: 'pickup' });
-        }
-        advanceStep(world, events);
-      }
-    }
-
-    var api = {
-      state: state,
-      objective: objective,
-      startMission: startMission,
-      onEnterCar: onEnterCar,
-      update: update,
-    };
-    api.attachWorld = function (world) { api.world = world; };
-    return api;
+  function landmark(name) {
+    return cfg[name];
   }
 
-  CH.createMissions = createMissions;
+  function currentMission() {
+    if (state.index < 0 || state.index >= cfg.missions.length) return null;
+    return cfg.missions[state.index];
+  }
+
+  function currentStep() {
+    var m = currentMission();
+    if (!m || !state.active) return null;
+    return m.steps[state.step] || null;
+  }
+
+  function buildMarker(scene) {
+    var beamMat = new THREE.MeshBasicMaterial({
+      color: 0xffd76a, transparent: true, opacity: 0.28,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    beam = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 42, 12, 1, true), beamMat);
+    beam.visible = false;
+    scene.add(beam);
+    var ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffd76a, transparent: true, opacity: 0.75, side: THREE.DoubleSide
+    });
+    ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 3.0, 24), ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.visible = false;
+    scene.add(ring);
+  }
+
+  function init(scene, hookFns) {
+    sceneRef = scene;
+    hooks = hookFns || {};
+    buildMarker(scene);
+  }
+
+  function startMission(index) {
+    var m = cfg.missions[index];
+    if (!m) return;
+    state.index = index;
+    state.step = 0;
+    state.active = true;
+    state.failed = false;
+    state.timer = m.timeLimit || 0;
+    state.breather = 0;
+    if (hooks.onBanner) hooks.onBanner(m.name, m.intro, 5200);
+    if (hooks.onObjective) hooks.onObjective(m.steps[0].text);
+    if (hooks.onStart) hooks.onStart(m);
+    window.CH.audio.missionStart();
+  }
+
+  function restartCurrent() {
+    state.step = 0;
+    state.active = true;
+    state.failed = false;
+    var m = currentMission();
+    state.timer = (m && m.timeLimit) || 0;
+    if (hooks.onObjective) hooks.onObjective(m.steps[0].text);
+  }
+
+  // Where the current step points: a fixed landmark, or a moving car.
+  function stepTarget(ctx) {
+    var step = currentStep();
+    if (!step) return null;
+    if (step.type === 'enter') {
+      if (step.car === 'taxi') return { x: ctx.taxiCar.x, z: ctx.taxiCar.z, car: ctx.taxiCar };
+      if (step.car === 'sports') return { x: ctx.sportsCar.x, z: ctx.sportsCar.z, car: ctx.sportsCar };
+      return null;
+    }
+    var lm = landmark(step.at);
+    return { x: lm.x, z: lm.z };
+  }
+
+  function markerPos(ctx) {
+    var t = stepTarget(ctx);
+    return t ? { x: t.x, z: t.z } : null;
+  }
+
+  function advance(ctx) {
+    var m = currentMission();
+    var step = currentStep();
+    if (step && step.wanted) {
+      window.CH.police.setWanted(Math.max(window.CH.police.wanted(), step.wanted));
+      if (hooks.onBanner) hooks.onBanner('WANTED', 'The whole city is looking for you now.', 3000);
+    }
+    state.step++;
+    if (state.step >= m.steps.length) {
+      complete(ctx);
+      return;
+    }
+    if (hooks.onObjective) hooks.onObjective(m.steps[state.step].text);
+    if (hooks.onStep) hooks.onStep(m, state.step);
+    window.CH.audio.click();
+  }
+
+  function complete(ctx) {
+    var m = currentMission();
+    state.active = false;
+    state.completed.push(m.id);
+    beam.visible = false;
+    ring.visible = false;
+    if (hooks.onComplete) hooks.onComplete(m);
+    // Next job after a breather.
+    if (state.index + 1 < cfg.missions.length) {
+      state.breather = 4;
+    }
+  }
+
+  function update(dt, ctx, clock) {
+    // Breather between jobs.
+    if (!state.active && state.breather > 0) {
+      state.breather -= dt;
+      if (state.breather <= 0) {
+        if (state.restartPending) {
+          state.restartPending = false;
+          restartCurrent();
+          if (hooks.onBanner) hooks.onBanner(currentMission().name, 'Try again — the job is still open.', 3000);
+        } else {
+          startMission(state.index + 1);
+        }
+      }
+      return;
+    }
+    var m = currentMission();
+    var step = currentStep();
+    if (!m || !step) {
+      beam.visible = false;
+      ring.visible = false;
+      return;
+    }
+    // Timed mission countdown.
+    if (m.timeLimit) {
+      state.timer -= dt;
+      if (state.timer <= 0) {
+        state.active = false;
+        state.failed = true;
+        beam.visible = false;
+        ring.visible = false;
+        if (hooks.onFail) hooks.onFail(m);
+        window.CH.audio.fail();
+        state.breather = 3;
+        // After the breather, the same mission restarts.
+        state.restartPending = true;
+        return;
+      }
+      if (hooks.onTimer) hooks.onTimer(Math.max(0, state.timer));
+    }
+    // Marker follows the step's target.
+    var target = stepTarget(ctx);
+    if (target) {
+      beam.visible = true;
+      ring.visible = true;
+      var pulse = 1 + Math.sin(clock * 3) * 0.12;
+      beam.position.set(target.x, 21, target.z);
+      beam.scale.set(pulse, 1, pulse);
+      ring.position.set(target.x, 0.35, target.z);
+      ring.rotation.z = clock * 0.8;
+    } else {
+      beam.visible = false;
+      ring.visible = false;
+    }
+    // Step completion.
+    var player = ctx.player;
+    if (step.type === 'enter') {
+      if (player.inCar && player.car === target.car) advance(ctx);
+    } else if (step.type === 'goto') {
+      var r = step.radius || 16;
+      if (util.dist2(player.x, player.z, target.x, target.z) < r) advance(ctx);
+    }
+  }
+
+  function setStep(i) {
+    var m = currentMission();
+    if (!m) return;
+    state.step = Math.max(0, Math.min(i, m.steps.length - 1));
+    if (hooks.onObjective) hooks.onObjective(m.steps[state.step].text);
+  }
+
+  function timeLeft() {
+    var m = currentMission();
+    return m && m.timeLimit ? Math.max(0, state.timer) : null;
+  }
+
+  // Screenshot staging: set the countdown to a dramatic value.
+  function setTimer(seconds) {
+    state.timer = seconds;
+  }
+
+  function getState() {
+    return state;
+  }
+
+  window.CH = window.CH || {};
+  window.CH.missions = {
+    init: init,
+    startMission: startMission,
+    setStep: setStep,
+    setTimer: setTimer,
+    update: update,
+    currentMission: currentMission,
+    currentStep: currentStep,
+    markerPos: markerPos,
+    timeLeft: timeLeft,
+    getState: getState
+  };
 })();

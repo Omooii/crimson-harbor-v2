@@ -1,117 +1,111 @@
-// The chase camera: it sits behind the player (or the car), eases into
-// place instead of snapping, lets the mouse orbit the view, pulls back
-// with speed, and shakes on crashes and explosions.
+// camera.js — the third-person chase camera. It trails behind the
+// player's heading, pulls back and rises with speed, and lets the player
+// drag the mouse to look around; the view eases back behind the player
+// when the mouse is released.
 (function () {
-  var CH = window.CH;
+  'use strict';
 
-  function createCamera(camera) {
-    var yaw = 0;
-    var yawOffset = 0;
-    var pitch = 0.32;
-    var distance = 9;
-    var shake = 0;
-    var currentPos = new THREE.Vector3(0, 8, -12);
-    var currentLook = new THREE.Vector3(0, 1, 0);
+  var util = window.CH.util;
 
-    function addShake(amount) {
-      shake = Math.min(1.2, shake + amount);
-    }
+  var camera = null;
+  var yaw = 0; // the direction the camera looks (same convention as heading)
+  var yawOffset = 0; // mouse drag, decays back to 0
+  var pos = { x: 0, y: 8, z: -12 };
+  var look = { x: 0, y: 2, z: 0 };
+  var lookBack = false; // chase shots: film from ahead, looking back
 
-    function update(dt, world, input) {
-      var player = world.player;
-      // The chase shot looks back: the camera rides ahead of the car so
-      // the pursuit is visible behind it, movie-style.
-      if (world.shot && world.shot.name === 'chase') {
-        var pp = player.mode === 'car' && player.car ? player.car.group.position : player.group.position;
-        var hd = player.mode === 'car' && player.car ? player.car.heading : player.heading;
-        var fx = Math.sin(hd);
-        var fz = Math.cos(hd);
-        var rx = Math.cos(hd);
-        var rz = -Math.sin(hd);
-        var desired = new THREE.Vector3(pp.x + fx * 15 + rx * 5, 4.4, pp.z + fz * 15 + rz * 5);
-        currentPos.x = CH.damp(currentPos.x, desired.x, 25, dt);
-        currentPos.y = CH.damp(currentPos.y, desired.y, 25, dt);
-        currentPos.z = CH.damp(currentPos.z, desired.z, 25, dt);
-        var look = new THREE.Vector3(pp.x, pp.y + 1.5, pp.z);
-        currentLook.x = CH.damp(currentLook.x, look.x, 25, dt);
-        currentLook.y = CH.damp(currentLook.y, look.y, 25, dt);
-        currentLook.z = CH.damp(currentLook.z, look.z, 25, dt);
-        shake = Math.max(0, shake - dt * 2.2);
-        var sx = shake > 0 ? (Math.random() - 0.5) * shake * 0.5 : 0;
-        var sy = shake > 0 ? (Math.random() - 0.5) * shake * 0.5 : 0;
-        camera.position.set(currentPos.x + sx, currentPos.y + sy, currentPos.z);
-        camera.lookAt(currentLook.x + sx, currentLook.y + sy, currentLook.z);
-        return;
-      }
-      var target = player.mode === 'car' && player.car
-        ? player.car.group.position
-        : player.group.position;
-      var heading = player.mode === 'car' && player.car ? player.car.heading : player.heading;
-      var speed = player.mode === 'car' && player.car ? Math.abs(player.car.speed) : player.speed;
-
-      // Mouse steers the orbit; it eases back behind the heading.
-      yawOffset -= input.mouse.dx * 0.0035;
-      yawOffset = CH.clamp(yawOffset, -2.4, 2.4);
-      yawOffset = CH.damp(yawOffset, 0, 0.6, dt);
-      pitch = CH.clamp(pitch + input.mouse.dy * 0.002, 0.12, 0.9);
-      var wantYaw = heading + Math.PI + yawOffset;
-      var dy = CH.angleDiff(wantYaw, yaw);
-      yaw += dy * Math.min(1, dt * (player.mode === 'car' ? 2.6 : 5));
-      world.camYaw = yaw - Math.PI;
-
-      var wantDist = player.mode === 'car' ? 8 + Math.min(2, speed * 0.06) : 7;
-      distance = CH.damp(distance, wantDist, 3, dt);
-      var height = player.mode === 'car' ? 4.6 : 3.2;
-      var lookHeight = player.mode === 'car' ? 1.6 : 1.8;
-
-      var desired = new THREE.Vector3(
-        target.x + Math.sin(yaw) * Math.cos(pitch) * distance,
-        target.y + height + Math.sin(pitch) * distance * 0.5,
-        target.z + Math.cos(yaw) * Math.cos(pitch) * distance
-      );
-      // Never sink under the street.
-      desired.y = Math.max(desired.y, 1.6);
-      // Stiff tracking: at full speed the camera must not trail the car.
-      currentPos.x = CH.damp(currentPos.x, desired.x, 25, dt);
-      currentPos.y = CH.damp(currentPos.y, desired.y, 25, dt);
-      currentPos.z = CH.damp(currentPos.z, desired.z, 25, dt);
-      // Look slightly ahead of the car so the road fills the frame.
-      var ahead = player.mode === 'car' ? 2.5 : 1.5;
-      var look = new THREE.Vector3(
-        target.x + Math.sin(heading) * ahead,
-        target.y + lookHeight,
-        target.z + Math.cos(heading) * ahead
-      );
-      currentLook.x = CH.damp(currentLook.x, look.x, 12, dt);
-      currentLook.y = CH.damp(currentLook.y, look.y, 12, dt);
-      currentLook.z = CH.damp(currentLook.z, look.z, 12, dt);
-
-      shake = Math.max(0, shake - dt * 2.2);
-      var sx = shake > 0 ? (Math.random() - 0.5) * shake * 0.5 : 0;
-      var sy = shake > 0 ? (Math.random() - 0.5) * shake * 0.5 : 0;
-      camera.position.set(currentPos.x + sx, currentPos.y + sy, currentPos.z);
-      camera.lookAt(currentLook.x + sx, currentLook.y + sy, currentLook.z);
-    }
-
-    function snapTo(world) {
-      var player = world.player;
-      var target = player.mode === 'car' && player.car
-        ? player.car.group.position
-        : player.group.position;
-      var heading = player.mode === 'car' && player.car ? player.car.heading : player.heading;
-      yaw = heading + Math.PI;
-      yawOffset = 0;
-      currentPos.set(
-        target.x + Math.sin(yaw) * distance,
-        target.y + 4,
-        target.z + Math.cos(yaw) * distance
-      );
-      currentLook.set(target.x, target.y + 1.6, target.z);
-      world.camYaw = yaw - Math.PI;
-    }
-
-    return { update: update, snapTo: snapTo, addShake: addShake };
+  function init(cam) {
+    camera = cam;
   }
 
-  CH.createCamera = createCamera;
+  function setLookBack(on) {
+    lookBack = on;
+  }
+
+  function setYaw(y) {
+    yaw = y;
+    yawOffset = 0;
+  }
+
+  function getYaw() {
+    return yaw + yawOffset;
+  }
+
+  function snapTo(x, z, heading) {
+    var back = 11;
+    pos.x = x - Math.sin(heading) * back;
+    pos.z = z - Math.cos(heading) * back;
+    pos.y = 5;
+    yaw = heading;
+    yawOffset = 0;
+  }
+
+  // target: {x, z, heading, speed}; inCar widens the shot.
+  function update(dt, target, inCar) {
+    // Mouse drag orbits the camera around the player.
+    var mdx = window.CH.input.consumeMouseDX();
+    yawOffset -= mdx * 0.004;
+    yawOffset = util.clamp(yawOffset, -Math.PI, Math.PI);
+    // Ease the offset back when the mouse is still.
+    if (mdx === 0) yawOffset = util.lerp(yawOffset, 0, Math.min(1, dt * 0.7));
+
+    // The camera wants to sit behind the heading it follows.
+    var follow = target.heading;
+    yaw = util.angleLerp(yaw, follow, Math.min(1, dt * (inCar ? 2.2 : 3.2)));
+    var viewYaw = yaw + yawOffset;
+
+    var speedNorm = util.clamp(Math.abs(target.speed || 0) / 30, 0, 1);
+    var dist = (inCar ? 8.8 : 7.5) + speedNorm * 2.5;
+    var height = (inCar ? 3.9 : 3.4) + speedNorm * 0.8;
+
+    var wantX;
+    var wantZ;
+    var wantY;
+    if (lookBack) {
+      // Ahead of the car and off to one side, looking back at it: the
+      // classic chase framing, pursuers visible behind the player.
+      var fx = Math.sin(target.heading);
+      var fz = Math.cos(target.heading);
+      wantX = target.x + fx * 13 - fz * 3.5;
+      wantZ = target.z + fz * 13 + fx * 3.5;
+      wantY = 4.2;
+    } else {
+      wantX = target.x - Math.sin(viewYaw) * dist;
+      wantZ = target.z - Math.cos(viewYaw) * dist;
+      wantY = height + (inCar ? 0.6 : 1.2);
+    }
+    var k = Math.min(1, dt * 5);
+    pos.x = util.lerp(pos.x, wantX, k);
+    pos.y = util.lerp(pos.y, wantY, k);
+    pos.z = util.lerp(pos.z, wantZ, k);
+    if (pos.y < 1.6) pos.y = 1.6;
+
+    // Look slightly ahead of the player, in the direction of travel —
+    // or, in look-back mode, right at the player.
+    var lookX;
+    var lookZ;
+    if (lookBack) {
+      lookX = target.x;
+      lookZ = target.z;
+    } else {
+      lookX = target.x + Math.sin(target.heading) * 3;
+      lookZ = target.z + Math.cos(target.heading) * 3;
+    }
+    look.x = util.lerp(look.x, lookX, Math.min(1, dt * 8));
+    look.y = util.lerp(look.y, inCar ? 1.4 : 1.8, Math.min(1, dt * 8));
+    look.z = util.lerp(look.z, lookZ, Math.min(1, dt * 8));
+
+    camera.position.set(pos.x, pos.y, pos.z);
+    camera.lookAt(look.x, look.y, look.z);
+  }
+
+  window.CH = window.CH || {};
+  window.CH.camera = {
+    init: init,
+    setYaw: setYaw,
+    setLookBack: setLookBack,
+    getYaw: getYaw,
+    snapTo: snapTo,
+    update: update
+  };
 })();

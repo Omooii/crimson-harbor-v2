@@ -1,143 +1,158 @@
-// Screenshot staging: ?shot=drive|foot|chase|mission (with &seed=N) puts
-// the game straight into a composed scene — no start screen, the camera
-// settled, the action already running — and sets window.__shotReady when
-// the frame is ready to capture. Drive and chase auto-drive so the shot
-// catches the city in motion.
+// shots.js — screenshot staging. A URL like ?shot=drive&seed=7 skips the
+// title screen and places the player, the cars, the wanted level and the
+// mission into a fixed, deterministic scene, so the four screenshots are
+// real renders of the game at its best. Each shot is its own moment in
+// the story, in its own part of the city: the sunset drive west, a night
+// street on foot, the Hot Wheels getaway, the Harbor Run climax. During
+// a staged shot the game drives itself (autopilot), so the car is
+// mid-motion when the shutter falls.
 (function () {
-  var CH = window.CH;
+  'use strict';
 
-  var SHOT_TIME = { drive: 2.4, foot: 0.9, chase: 2.6, mission: 1.0 };
+  var params = new URLSearchParams(window.location.search);
+  var shot = params.get('shot') || null;
+  var seed = parseInt(params.get('seed') || '7', 10);
+  if (isNaN(seed)) seed = 7;
 
-  function stageShot(name, world) {
-    var player = world.player;
-    var L = CH.LANDMARKS;
-    world.shot = { name: name, timer: 0, ready: false };
-    world.cash = 500;
-    world.wanted = 0;
+  var staged = null; // the shot we staged, once main hands us the world
 
-    if (name === 'drive') {
-      // Westbound on the avenue at sunset, mission 1 live, doing 60.
-      var car = CH.makeCar(world.scene, 'sports', 60, -30, -Math.PI / 2, 0x40b8c9);
-      world.cars.push(car);
-      player.group.position.set(60, 0, -30);
-      CH.enterCar(player, car, world, world.events);
-      car.vx = -24;
-      world.wanted = 0;
-      world.missions.startMission(world, world.events, 1);
-      world.shot.auto = { lane: -30, axis: 'z', dir: -1 };
-      // Life in frame: two cruisers ahead on the same avenue, two
-      // pedestrians on the sidewalk the camera will pass.
-      var placed = 0;
-      world.cars.forEach(function (c) {
-        if (c.driver !== 'traffic' || placed >= 2) return;
-        var spot = placed === 0 ? { x: -8, z: -26.8 } : { x: -48, z: -33.2 };
-        c.group.position.set(spot.x, 0, spot.z);
-        c.heading = -Math.PI / 2;
-        c.group.rotation.y = c.heading;
-        c.axis = 'x';
-        c.dir = -1;
-        c.road = -30;
-        c.lane = spot.z - (-30);
-        c.vx = -c.cruise;
-        c.vz = 0;
-        placed++;
-      });
-      var pedSpots = [{ x: -18, z: -21 }, { x: 8, z: -39 }];
-      pedSpots.forEach(function (s, i) {
-        var ped = world.pedestrians.peds[i + 3];
-        if (!ped) return;
-        ped.group.position.set(s.x, 0, s.z);
-        ped.target = { x: s.x - 40, z: s.z };
-      });
-    } else if (name === 'foot') {
-      // On foot outside the Harbor Garage, the gold marker ahead.
-      player.group.position.set(-63, 0, 100);
-      player.heading = 0;
-      player.group.rotation.y = 0;
-      world.missions.startMission(world, world.events, 1);
-      // A few pedestrians nearby for life.
-      for (var i = 0; i < 3; i++) {
-        var ped = world.pedestrians.peds[i];
-        if (ped) {
-          ped.group.position.set(-63 + (i - 1) * 6, 0, 100 + i * 4);
-          ped.target = { x: -63 + (i - 1) * 6, z: 130 };
-        }
-      }
-    } else if (name === 'chase') {
-      // Three stars, three pursuit cars closing in from behind.
-      var chaseCar = CH.makeCar(world.scene, 'sports', -30, 40, Math.PI, 0xc9403a);
-      world.cars.push(chaseCar);
-      player.group.position.set(-30, 0, 40);
-      CH.enterCar(player, chaseCar, world, world.events);
-      chaseCar.vz = -28;
-      world.wanted = 3;
-      world.cash = 1250;
-      world.missions.startMission(world, world.events, 1);
-      // Pursuit cars behind the player; the chase camera looks back at them.
-      var offsets = [[-34, 58, Math.PI], [-26, 66, Math.PI], [-38, 48, Math.PI]];
-      offsets.forEach(function (o) {
-        var cop = CH.makeCar(world.scene, 'police', o[0], o[1], o[2], 0x1c1c22);
-        cop.driver = 'police';
-        cop.vz = -26;
-        world.cars.push(cop);
-        world.police.copCars.push(cop);
-      });
-      world.shot.auto = { lane: -30, axis: 'x', dir: -1 };
-    } else if (name === 'mission') {
-      // Mission 2: the red Comet in the Marina Lot, beacon on it.
-      world.cash = 1250;
-      world.missionsDone = 1;
-      world.missions.startMission(world, world.events, 2);
-      var comet = world.missions.state.targetCar;
-      player.group.position.set(168, 0, 60);
-      player.heading = Math.PI / 2;
-      player.group.rotation.y = Math.PI / 2;
-      if (comet) {
-        comet.group.position.set(176, 0, 60);
-        comet.group.rotation.y = Math.PI / 2;
-      }
-    }
-    world.cameraRig.snapTo(world);
-    world.mode = 'play';
+  function isStaging() {
+    return shot === 'drive' || shot === 'foot' || shot === 'chase' || shot === 'mission';
   }
 
-  // Auto-drive for the moving shots: hold the lane, dodge the car ahead.
-  function updateAutoDrive(dt, world) {
-    var shot = world.shot;
-    if (!shot || !shot.auto || world.player.mode !== 'car') return;
-    var car = world.player.car;
-    if (!car || car.dead) return;
-    // The staged car never dies mid-shot (it may smoke, which looks great).
-    car.damage = Math.min(car.damage, 60);
-    var laneCoord = shot.auto.axis === 'x' ? car.group.position.x : car.group.position.z;
-    var err = shot.auto.lane - laneCoord;
-    var steer = CH.clamp(err * 0.25, -0.6, 0.6);
-    // Nudge around slow traffic ahead.
-    var fx = Math.sin(car.heading);
-    var fz = Math.cos(car.heading);
-    world.cars.forEach(function (other) {
-      if (other === car || other.dead) return;
-      var dx = other.group.position.x - car.group.position.x;
-      var dz = other.group.position.z - car.group.position.z;
-      var ahead = dx * fx + dz * fz;
-      var side = dx * fz - dz * fx;
-      if (ahead > 0 && ahead < 18 && Math.abs(side) < 4.5) steer += side > 0 ? -0.5 : 0.5;
-    });
-    CH.driveCar(car, dt, 1, CH.clamp(steer, -1, 1), false, world.city, world.events);
+  function getSeed() {
+    return seed;
   }
 
-  function updateShotTimer(dt, world) {
-    var shot = world.shot;
-    if (!shot || shot.ready) return;
-    shot.timer += dt;
-    var wait = SHOT_TIME[shot.name] || 1;
-    if (shot.timer >= wait) {
-      shot.ready = true;
-      window.__shotReady = true;
+  function getShot() {
+    return shot;
+  }
+
+  // Put a few pedestrians on the sidewalks near (x, z), strolling, so a
+  // street reads as inhabited.
+  function crowdNear(spots) {
+    var peds = window.CH.pedestrians.all();
+    for (var i = 0; i < spots.length && i < peds.length; i++) {
+      var ped = peds[i];
+      ped.x = spots[i].x;
+      ped.z = spots[i].z;
+      ped.target = spots[i].target;
+      ped.heading = Math.atan2(spots[i].target.x - ped.x, spots[i].target.z - ped.z);
+      ped.mesh.group.position.set(ped.x, 0, ped.z);
     }
   }
 
-  CH.stageShot = stageShot;
-  CH.updateAutoDrive = updateAutoDrive;
-  CH.updateShotTimer = updateShotTimer;
+  // ctx: {player, taxiCar, sportsCar, scene} — everything main built.
+  function stage(ctx) {
+    var P = window.CH.player;
+    var M = window.CH.missions;
+    var V = window.CH.vehicles;
+    var T = window.CH.traffic;
+    staged = shot;
+
+    if (params.get('night') === '1') {
+      window.CH.city.setNight(true);
+    }
+
+    if (shot === 'drive') {
+      // Westbound on the main street, into the setting sun, the Comet GT
+      // at full chat with oncoming traffic in the next lane.
+      V.setPose(ctx.sportsCar, 60, -10.5, -Math.PI / 2);
+      ctx.sportsCar.speed = 20;
+      P.enterCar(ctx.sportsCar);
+      // Entering the Comet GT counts as a theft; the drive shot is clean.
+      window.CH.police.setWanted(0);
+      // Oncoming traffic: a sedan and a truck in the eastbound lane, and
+      // a car ahead in our lane — all still ahead when the shutter falls.
+      T.spawnParkedAt(ctx.scene, 'sedan', -55, -3.5, Math.PI / 2, 0x2a6ac0);
+      T.spawnParkedAt(ctx.scene, 'truck', -40, -3.5, Math.PI / 2, 0xe8e4da);
+      T.spawnParkedAt(ctx.scene, 'sedan', -35, -10.5, -Math.PI / 2, 0x5a7a5a);
+      M.startMission(0);
+      M.setStep(1);
+      window.CH.hud.showDialogue('Mara', 'Client\u2019s waiting at the hotel. Look sharp.', 20000);
+      window.CH.camera.snapTo(ctx.sportsCar.x, ctx.sportsCar.z, -Math.PI / 2);
+    } else if (shot === 'foot') {
+      // On foot at the kerb by the garage, at night: streetlights, lit
+      // windows, shop signs, people strolling past on both sidewalks.
+      P.setPose(-12, 75, Math.PI);
+      window.CH.camera.snapTo(-12, 75, Math.PI);
+      crowdNear([
+        { x: -15.5, z: 52, target: { x: -15.5, z: 90 } },
+        { x: 1.5, z: 58, target: { x: 1.5, z: 95 } },
+        { x: -15.5, z: 40, target: { x: -15.5, z: 70 } },
+        { x: 1.5, z: 45, target: { x: 1.5, z: 75 } }
+      ]);
+      M.startMission(0);
+      window.CH.hud.showDialogue('Mara', 'Taxi\u2019s gassed up. Don\u2019t scratch her — she\u2019s my favorite.', 20000);
+    } else if (shot === 'chase') {
+      // The Hot Wheels getaway: three stars, three cruisers on the tail,
+      // a near-miss sedan in the next lane, the garage far behind.
+      V.setPose(ctx.sportsCar, -3.5, 20, Math.PI);
+      ctx.sportsCar.speed = 24;
+      P.enterCar(ctx.sportsCar);
+      window.CH.police.stageChase(ctx.sportsCar.x, ctx.sportsCar.z, Math.PI);
+      window.CH.camera.setLookBack(true);
+      // The sedan the getaway just squeezed past.
+      T.spawnParkedAt(ctx.scene, 'sedan', -10.5, -64, Math.PI / 2, 0x2a6ac0);
+      window.CH.debug.setCash(500);
+      window.CH.debug.setXp(175);
+      M.startMission(1);
+      M.setStep(1);
+      window.CH.hud.showDialogue('Mara', 'You got her. Now bring her in — easy does it.', 30000);
+      window.CH.camera.snapTo(ctx.sportsCar.x, ctx.sportsCar.z, Math.PI);
+    } else if (shot === 'mission') {
+      // The Harbor Run climax: the crate is loaded, the clock is running,
+      // the dock beam stands over the water ahead.
+      V.setPose(ctx.sportsCar, 150, 53, Math.PI / 2);
+      ctx.sportsCar.speed = 20;
+      P.enterCar(ctx.sportsCar);
+      window.CH.police.setWanted(0);
+      window.CH.debug.setCash(1250);
+      window.CH.debug.setXp(325);
+      window.CH.debug.setClock(18 * 60 + 20);
+      M.startMission(2);
+      M.setStep(1);
+      M.setTimer(85);
+      window.CH.hud.showDialogue('Mara', 'Crate\u2019s loaded. Harbor Dock, and don\u2019t stop for anyone.', 25000);
+      window.CH.camera.snapTo(ctx.sportsCar.x, ctx.sportsCar.z, Math.PI / 2);
+    }
+    return staged;
+  }
+
+  // Autopilot input while a shot is staged. Returns null when the shot
+  // needs no driving.
+  function autopilot(playerState) {
+    if (!isStaging()) return null;
+    if (shot === 'foot') return { walk: true };
+    if (!playerState.inCar) return null;
+    var car = playerState.car;
+    var util = window.CH.util;
+    if (shot === 'drive') {
+      // Westbound on the street, into the sunset, holding the lane.
+      var headingErr = util.angleDiff(-Math.PI / 2, car.heading);
+      var steer = util.clamp(headingErr * 2.0 - (car.z + 10.5) * 0.06, -1, 1);
+      return { throttle: 0.85, steer: steer, handbrake: false };
+    }
+    if (shot === 'mission') {
+      // Toward the dock marker.
+      var dock = window.CH.config.dock;
+      var desired = Math.atan2(dock.x - car.x, dock.z - car.z);
+      var steerM = util.clamp(util.angleDiff(desired, car.heading) * 2.0, -1, 1);
+      return { throttle: 0.85, steer: steerM, handbrake: false };
+    }
+    // Northbound up the avenue (the chase).
+    var laneErr = (car.x + 3.5) * 0.06;
+    var headingErrN = util.angleDiff(Math.PI, car.heading);
+    var steerN = util.clamp(headingErrN * 2.0 + laneErr, -1, 1);
+    return { throttle: 0.85, steer: steerN, handbrake: false };
+  }
+
+  window.CH = window.CH || {};
+  window.CH.shots = {
+    isStaging: isStaging,
+    getSeed: getSeed,
+    getShot: getShot,
+    stage: stage,
+    autopilot: autopilot
+  };
 })();

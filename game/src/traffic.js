@@ -1,142 +1,205 @@
-// Ambient traffic: cars cruising the road grid in lanes, braking for the
-// car ahead, turning at intersections, wrapping at the map edge — plus
-// parked cars along the kerb waiting to be stolen.
+// traffic.js — the city's other drivers and its parked cars. Moving cars
+// follow the road grid: they drive from intersection to intersection,
+// pick a new direction at each one, and brake for the car ahead. Parked
+// cars sit by the curb; the player can steal any of them.
 (function () {
-  var CH = window.CH;
-  var CONFIG = CH.CONFIG;
+  'use strict';
 
-  function createTraffic(scene, city, rng) {
-    var cars = [];
-    var kinds = ['sedan', 'sedan', 'sedan', 'taxi', 'truck', 'sports'];
-    var roads = CONFIG.roads;
+  var cfg = window.CH.config;
+  var util = window.CH.util;
 
-    function spawnCruiser() {
-      var road = roads[rng.int(0, roads.length - 1)];
-      var alongX = rng.chance(0.5);
-      var dir = rng.chance(0.5) ? 1 : -1;
-      var lane = rng.chance(0.5) ? 3.2 : -3.2;
-      var x, z, heading;
-      if (alongX) {
-        x = rng.range(-200, 200);
-        z = road + lane;
-        heading = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      } else {
-        x = road + lane;
-        z = rng.range(-200, 200);
-        heading = dir > 0 ? 0 : Math.PI;
-      }
-      var car = CH.makeCar(scene, rng.pick(kinds), x, z, heading);
-      car.driver = 'traffic';
-      car.cruise = rng.range(9, 13);
-      car.axis = alongX ? 'x' : 'z';
-      car.dir = dir;
-      car.road = road;
-      car.lane = lane;
-      car.turnAt = null;
-      cars.push(car);
-      return car;
-    }
+  var moving = []; // cars with a route
+  var parked = []; // stationary cars the player can take
+  var sceneRef = null;
 
-    function spawnParked() {
-      var road = roads[rng.int(0, roads.length - 1)];
-      var alongX = rng.chance(0.5);
-      var side = rng.chance(0.5) ? 1 : -1;
-      var x, z, heading;
-      if (alongX) {
-        x = rng.range(-190, 190);
-        z = road + side * 9.5;
-        heading = side > 0 ? Math.PI / 2 : -Math.PI / 2;
-      } else {
-        x = road + side * 9.5;
-        z = rng.range(-190, 190);
-        heading = side > 0 ? 0 : Math.PI;
-      }
-      // Keep parked cars out of the mission target car spots and landmarks.
-      var clear = Object.keys(CH.LANDMARKS).every(function (k) {
-        var l = CH.LANDMARKS[k];
-        return CH.dist(x, z, l.x, l.z) > 14;
-      });
-      if (!clear) return null;
-      var car = CH.makeCar(scene, rng.pick(kinds), x, z, heading);
-      car.driver = null;
-      cars.push(car);
-      return car;
-    }
+  var TRAFFIC_COLORS = [0x7a8ba0, 0xb0b8c0, 0x3a4a5a, 0x8a3a3a, 0x4a6b4a, 0xd8d0c0, 0x5a5a6b, 0xc0a060];
+  var KINDS = ['sedan', 'sedan', 'sedan', 'taxi', 'truck'];
 
-    for (var i = 0; i < CONFIG.traffic.count; i++) spawnCruiser();
-    for (var j = 0; j < CONFIG.traffic.parked; j++) spawnParked();
-
-    function carAhead(car, all) {
-      var fx = Math.sin(car.heading);
-      var fz = Math.cos(car.heading);
-      var best = Infinity;
-      for (var i = 0; i < all.length; i++) {
-        var o = all[i];
-        if (o === car || o.dead) continue;
-        var dx = o.group.position.x - car.group.position.x;
-        var dz = o.group.position.z - car.group.position.z;
-        var ahead = dx * fx + dz * fz;
-        var side = Math.abs(dx * fz - dz * fx);
-        if (ahead > 0 && ahead < 11 && side < 2.6 && ahead < best) best = ahead;
-      }
-      return best;
-    }
-
-    function update(dt, world, events) {
-      var all = world.cars;
-      for (var i = 0; i < cars.length; i++) {
-        var car = cars[i];
-        if (car.driver !== 'traffic' || car.dead) continue;
-        // At an intersection, sometimes turn onto the cross street.
-        var px = car.group.position.x;
-        var pz = car.group.position.z;
-        var nearCross = roads.some(function (r) {
-          return Math.abs((car.axis === 'x' ? px : pz) - r) < 1.2;
-        });
-        if (nearCross && !car.turnAt && rng.chance(0.25)) {
-          car.turnAt = car.axis === 'x' ? px : pz;
-          car.axis = car.axis === 'x' ? 'z' : 'x';
-          car.dir = rng.chance(0.5) ? 1 : -1;
-          car.road = roads.reduce(function (best, r) {
-            var v = car.axis === 'x' ? pz : px;
-            return Math.abs(r - v) < Math.abs(best - v) ? r : best;
-          }, roads[0]);
-          car.lane = rng.chance(0.5) ? 3.2 : -3.2;
-        }
-        if (car.turnAt !== null && Math.abs((car.axis === 'z' ? px : pz) - car.turnAt) > 6) car.turnAt = null;
-        var targetHeading = car.axis === 'x'
-          ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2)
-          : (car.dir > 0 ? 0 : Math.PI);
-        var steer = CH.clamp(CH.angleDiff(targetHeading, car.heading) * 2.2, -1, 1);
-        var gap = carAhead(car, all);
-        var throttle = gap < 11 ? 0 : 1;
-        if (gap < 6) throttle = -1;
-        // Ease toward the lane line.
-        var laneCoord = car.axis === 'x' ? pz : px;
-        var laneTarget = car.road + car.lane;
-        var laneErr = laneTarget - laneCoord;
-        steer += CH.clamp(laneErr * 0.12, -0.4, 0.4);
-        CH.driveCar(car, dt, throttle, CH.clamp(steer, -1, 1), false, city, events);
-        // Wrap at the map edge instead of driving into the sea.
-        if (px > 205 || px < -205 || pz > 205 || pz < -205) {
-          car.group.position.x = -px * 0.95;
-          car.group.position.z = -pz * 0.95;
-        }
-        // Cap cruise speed.
-        var sp = Math.sqrt(car.vx * car.vx + car.vz * car.vz);
-        if (sp > car.cruise) {
-          car.vx *= car.cruise / sp;
-          car.vz *= car.cruise / sp;
-        }
-      }
-    }
-
-    return {
-      cars: cars,
-      update: update,
-      spawnParked: spawnParked,
-    };
+  function roadEnds() {
+    return { lo: -cfg.HALF, hi: cfg.HALF };
   }
 
-  CH.createTraffic = createTraffic;
+  // Pick the next intersection for a car that just reached one.
+  function nextTarget(car, rng) {
+    var aves = cfg.avenues;
+    var strs = cfg.streets;
+    // Snap the car's current position to the nearest intersection.
+    var ai = 0;
+    var si = 0;
+    var bestA = 1e9;
+    var bestS = 1e9;
+    for (var i = 0; i < aves.length; i++) {
+      var da = Math.abs(car.x - aves[i]);
+      if (da < bestA) { bestA = da; ai = i; }
+      var ds = Math.abs(car.z - strs[i]);
+      if (ds < bestS) { bestS = ds; si = i; }
+    }
+    // Directions the car may take from here (dx, dz in grid steps).
+    var options = [];
+    if (ai > 0) options.push([-1, 0]);
+    if (ai < aves.length - 1) options.push([1, 0]);
+    if (si > 0) options.push([0, -1]);
+    if (si < strs.length - 1) options.push([0, 1]);
+    // Prefer to keep going straight: weight the current direction double.
+    var dir = car.gridDir || [1, 0];
+    options.push(dir);
+    options.push(dir);
+    var choice = options[Math.floor(rng() * options.length)];
+    car.gridDir = choice;
+    var nx = aves[ai + choice[0]];
+    var nz = strs[si + choice[1]];
+    // Lane offset: right-hand traffic.
+    var lx = 0;
+    var lz = 0;
+    if (choice[0] === 1) lz = 3.5; // eastbound: right side is south
+    if (choice[0] === -1) lz = -3.5;
+    if (choice[1] === 1) lx = -3.5; // southbound: right side is west
+    if (choice[1] === -1) lx = 3.5;
+    return { x: nx + lx, z: nz + lz };
+  }
+
+  function spawnMoving(scene, rng, count) {
+    for (var i = 0; i < count; i++) {
+      var kind = util.pick(rng, KINDS);
+      var color = util.pick(rng, TRAFFIC_COLORS);
+      var ave = util.pick(rng, cfg.avenues);
+      var str = util.pick(rng, cfg.streets);
+      var alongAvenue = rng() < 0.5;
+      var x;
+      var z;
+      var heading;
+      if (alongAvenue) {
+        x = ave + (rng() < 0.5 ? 3.5 : -3.5);
+        z = util.range(rng, -cfg.HALF + 20, cfg.HALF - 20);
+        heading = x > ave ? Math.PI : 0; // northbound on the east lane
+      } else {
+        x = util.range(rng, -cfg.HALF + 20, cfg.HALF - 20);
+        z = str + (rng() < 0.5 ? 3.5 : -3.5);
+        heading = z > str ? Math.PI / 2 : -Math.PI / 2; // eastbound on the south lane
+      }
+      var car = window.CH.vehicles.createCar(scene, kind, x, z, heading, color);
+      car.cruise = util.range(rng, 8, 12);
+      car.gridDir = alongAvenue ? (heading === Math.PI ? [0, -1] : [0, 1]) : (heading === Math.PI / 2 ? [1, 0] : [-1, 0]);
+      car.target = nextTarget(car, rng);
+      car.wait = 0;
+      moving.push(car);
+    }
+  }
+
+  function spawnParked(scene, rng, count) {
+    var tries = 0;
+    while (parked.length < count && tries < 200) {
+      tries++;
+      var ave = util.pick(rng, cfg.avenues);
+      var z = util.range(rng, -cfg.HALF + 30, cfg.HALF - 30);
+      // Keep the mission taxi's avenue clear near the garage.
+      if (Math.abs(ave - (-7)) < 1 && z > 40 && z < 110) continue;
+      var side = rng() < 0.5 ? 1 : -1;
+      var x = ave + side * 5.6;
+      var kind = util.pick(rng, KINDS);
+      var color = util.pick(rng, TRAFFIC_COLORS);
+      var car = window.CH.vehicles.createCar(scene, kind, x, z, side > 0 ? Math.PI : 0, color);
+      parked.push(car);
+    }
+  }
+
+  // A specific parked car, placed by a mission (e.g. the Comet GT).
+  function spawnParkedAt(scene, kind, x, z, heading, color) {
+    var car = window.CH.vehicles.createCar(scene, kind, x, z, heading, color);
+    parked.push(car);
+    return car;
+  }
+
+  function init(scene, rng) {
+    sceneRef = scene;
+    moving = [];
+    parked = [];
+    spawnMoving(scene, rng, 12);
+    spawnParked(scene, rng, 10);
+  }
+
+  function carAhead(car, others) {
+    var fx = Math.sin(car.heading);
+    var fz = Math.cos(car.heading);
+    for (var i = 0; i < others.length; i++) {
+      var o = others[i];
+      if (o === car || o.dead) continue;
+      var dx = o.x - car.x;
+      var dz = o.z - car.z;
+      var d = Math.sqrt(dx * dx + dz * dz);
+      if (d > 12 || d < 0.01) continue;
+      var dot = (dx * fx + dz * fz) / d;
+      if (dot > 0.82) return d;
+    }
+    return Infinity;
+  }
+
+  function update(dt, rng, extraCars) {
+    var all = moving.concat(parked).concat(extraCars || []);
+    for (var i = 0; i < moving.length; i++) {
+      var car = moving[i];
+      var t = car.target;
+      var d = util.dist2(car.x, car.z, t.x, t.z);
+      if (d < 7) {
+        car.target = nextTarget(car, rng);
+        t = car.target;
+      }
+      var desired = Math.atan2(t.x - car.x, t.z - car.z);
+      var steer = util.clamp(util.angleDiff(desired, car.heading) * 2.4, -1, 1);
+      var ahead = carAhead(car, all);
+      var throttle = 1;
+      if (ahead < 11) throttle = 0.15;
+      if (ahead < 6.5) throttle = -0.7;
+      // Ease up to cruise speed, never beyond it.
+      if (car.speed > car.cruise) throttle = Math.min(throttle, 0);
+      window.CH.vehicles.drive(car, dt, { throttle: throttle, steer: steer, handbrake: false });
+    }
+  }
+
+  // Put an existing car back on the street as a parked car (the player
+  // stepped out of it).
+  function parkCar(car) {
+    if (parked.indexOf(car) === -1 && moving.indexOf(car) === -1) {
+      parked.push(car);
+    }
+  }
+
+  // The nearest parked car within maxDist of a point, or null.
+  function nearestParked(x, z, maxDist) {
+    var best = null;
+    var bestD = maxDist;
+    for (var i = 0; i < parked.length; i++) {
+      var c = parked[i];
+      if (c.dead) continue;
+      var d = util.dist2(x, z, c.x, c.z);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  // Take a parked car out of the parked list (the player stole it).
+  function takeParked(car) {
+    var idx = parked.indexOf(car);
+    if (idx !== -1) parked.splice(idx, 1);
+  }
+
+  function allCars() {
+    return moving.concat(parked);
+  }
+
+  window.CH = window.CH || {};
+  window.CH.traffic = {
+    init: init,
+    update: update,
+    spawnParkedAt: spawnParkedAt,
+    parkCar: parkCar,
+    nearestParked: nearestParked,
+    takeParked: takeParked,
+    allCars: allCars,
+    moving: function () { return moving; },
+    parked: function () { return parked; }
+  };
 })();

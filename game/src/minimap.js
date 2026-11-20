@@ -1,96 +1,179 @@
-// The minimap: a 2D canvas in the HUD's corner, drawn from the same road
-// layout as the city, with blips for the player, the mission target, the
-// police and nearby cars. North is up; the player arrow rotates.
+// minimap.js — the circular street map in the corner of the HUD: roads
+// and blocks around the player, the player's arrow, nearby cars, police
+// and the gold mission marker. North is up; the map never rotates.
 (function () {
-  var CH = window.CH;
-  var CONFIG = CH.CONFIG;
+  'use strict';
 
-  function createMinimap() {
-    var canvas = document.getElementById('minimap');
-    var ctx = canvas.getContext('2d');
-    var size = canvas.width;
-    var half = 230;
+  var cfg = window.CH.config;
+  var util = window.CH.util;
 
-    function toMap(x, z) {
-      return [
-        ((x + half) / (half * 2)) * size,
-        ((z + half) / (half * 2)) * size,
-      ];
-    }
+  var canvas = null;
+  var ctx = null;
+  var SIZE = 190;
+  var SCALE = 1.05; // pixels per world unit
+  var clock = 0;
 
-    function draw(world) {
-      // Water and ground.
-      ctx.fillStyle = '#1b6b82';
-      ctx.fillRect(0, 0, size, size);
-      ctx.fillStyle = '#8a8172';
-      ctx.fillRect(0, 0, toMap(205, 0)[0], size);
-      ctx.fillStyle = '#e3cd96';
-      ctx.fillRect(toMap(157, 0)[0], 0, toMap(205, 0)[0] - toMap(157, 0)[0], size);
-      // Parks.
-      ctx.fillStyle = '#5d8a4a';
-      [[-60, -60], [60, 60]].forEach(function (p) {
-        var a = toMap(p[0] - 21, p[1] - 21);
-        var b = toMap(p[0] + 21, p[1] + 21);
-        ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
-      });
-      // Roads.
-      ctx.fillStyle = '#34343a';
-      CONFIG.roads.forEach(function (r) {
-        var w = (CONFIG.roadHalf * 2 / (half * 2)) * size;
-        ctx.fillRect(0, toMap(0, r)[1] - w / 2, toMap(157, 0)[0], w);
-        ctx.fillRect(toMap(r, 0)[0] - w / 2, toMap(0, -157)[1], w, size - toMap(0, -157)[1]);
-      });
-      // Mission target blip.
-      var obj = world.missions.objective(world);
-      if (obj.target) {
-        var t = toMap(obj.target.x, obj.target.z);
-        ctx.fillStyle = obj.kind === 'start' ? '#ffd24d' : '#35d0ff';
-        ctx.beginPath();
-        ctx.arc(t[0], t[1], 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-      // Police blips (red/blue flash by time).
-      var flash = Math.floor(world.time * 3) % 2 === 0;
-      world.police.copCars.forEach(function (car) {
-        if (car.dead) return;
-        var p = toMap(car.group.position.x, car.group.position.z);
-        ctx.fillStyle = flash ? '#ff4444' : '#4488ff';
-        ctx.beginPath();
-        ctx.arc(p[0], p[1], 3.5, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      // Player arrow (car position while driving).
-      var ppos = CH.playerPos(world);
-      var pp = toMap(ppos.x, ppos.z);
-      ctx.save();
-      ctx.translate(pp[0], pp[1]);
-      var arrowHeading = world.player.mode === 'car' && world.player.car
-        ? world.player.car.heading
-        : world.player.heading;
-      ctx.rotate(Math.PI - arrowHeading);
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = '#111111';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -7);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5, 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-      // North marker.
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText('N', size - 14, 14);
-    }
-
-    return { draw: draw };
+  function init(canvasEl) {
+    canvas = canvasEl;
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    ctx = canvas.getContext('2d');
   }
 
-  CH.createMinimap = createMinimap;
+  function toMap(wx, wz, px, pz) {
+    return {
+      x: SIZE / 2 + (wx - px) * SCALE,
+      y: SIZE / 2 + (wz - pz) * SCALE
+    };
+  }
+
+  function update(dt, state) {
+    if (!ctx) return;
+    clock += dt;
+    var px = state.player.x;
+    var pz = state.player.z;
+    var g = ctx;
+    g.clearRect(0, 0, SIZE, SIZE);
+
+    // Clip to the circle.
+    g.save();
+    g.beginPath();
+    g.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2);
+    g.clip();
+
+    // Land.
+    g.fillStyle = '#23202a';
+    g.fillRect(0, 0, SIZE, SIZE);
+    // Water: harbour east, sea south.
+    g.fillStyle = '#2e6f8e';
+    var hx = toMap(cfg.harborX, 0, px, pz).x;
+    g.fillRect(hx, 0, SIZE - hx, SIZE);
+    var sz = toMap(0, cfg.seaZ, px, pz).y;
+    g.fillRect(0, sz, SIZE, SIZE - sz);
+    // Sand strip.
+    g.fillStyle = '#b09a68';
+    var sandTop = toMap(0, cfg.HALF, px, pz).y;
+    g.fillRect(0, sandTop, SIZE, Math.max(0, sz - sandTop));
+
+    // Blocks.
+    g.fillStyle = '#4a4552';
+    cfg.blockCenters.forEach(function (bx) {
+      cfg.blockCenters.forEach(function (bz) {
+        var p = toMap(bx - cfg.BLOCK / 2, bz - cfg.BLOCK / 2, px, pz);
+        g.fillRect(p.x, p.y, cfg.BLOCK * SCALE, cfg.BLOCK * SCALE);
+      });
+    });
+    // Roads.
+    g.strokeStyle = '#6b6575';
+    g.lineWidth = cfg.ROAD * SCALE;
+    cfg.avenues.forEach(function (x) {
+      var p = toMap(x, 0, px, pz);
+      g.beginPath();
+      g.moveTo(p.x, -10);
+      g.lineTo(p.x, SIZE + 10);
+      g.stroke();
+    });
+    cfg.streets.forEach(function (z) {
+      var p = toMap(0, z, px, pz);
+      g.beginPath();
+      g.moveTo(-10, p.y);
+      g.lineTo(SIZE + 10, p.y);
+      g.stroke();
+    });
+    // Road centre dashes.
+    g.strokeStyle = '#8a8494';
+    g.lineWidth = 1;
+    g.setLineDash([4, 6]);
+    cfg.avenues.forEach(function (x) {
+      var p = toMap(x, 0, px, pz);
+      g.beginPath();
+      g.moveTo(p.x, -10);
+      g.lineTo(p.x, SIZE + 10);
+      g.stroke();
+    });
+    cfg.streets.forEach(function (z) {
+      var p = toMap(0, z, px, pz);
+      g.beginPath();
+      g.moveTo(-10, p.y);
+      g.lineTo(SIZE + 10, p.y);
+      g.stroke();
+    });
+    g.setLineDash([]);
+
+    // Garage: a green square.
+    var gp = toMap(cfg.garage.x, cfg.garage.z, px, pz);
+    g.fillStyle = '#4ade80';
+    g.fillRect(gp.x - 4, gp.y - 4, 8, 8);
+
+    // Mission marker: a pulsing gold diamond, clamped to the edge.
+    if (state.marker) {
+      var mp = toMap(state.marker.x, state.marker.z, px, pz);
+      var dx = mp.x - SIZE / 2;
+      var dy = mp.y - SIZE / 2;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      var maxR = SIZE / 2 - 12;
+      if (d > maxR) {
+        mp.x = SIZE / 2 + (dx / d) * maxR;
+        mp.y = SIZE / 2 + (dy / d) * maxR;
+      }
+      var pulse = 6 + Math.sin(clock * 5) * 1.5;
+      g.fillStyle = '#ffd76a';
+      g.beginPath();
+      g.moveTo(mp.x, mp.y - pulse);
+      g.lineTo(mp.x + pulse, mp.y);
+      g.lineTo(mp.x, mp.y + pulse);
+      g.lineTo(mp.x - pulse, mp.y);
+      g.closePath();
+      g.fill();
+    }
+
+    // Other cars: white dots.
+    g.fillStyle = '#e8e8f0';
+    (state.cars || []).forEach(function (c) {
+      var p = toMap(c.x, c.z, px, pz);
+      g.fillRect(p.x - 2, p.y - 2, 4, 4);
+    });
+    // Police: flashing red/blue dots.
+    var flash = Math.floor(clock * 4) % 2 === 0;
+    g.fillStyle = flash ? '#ff4040' : '#4080ff';
+    (state.police || []).forEach(function (c) {
+      var p = toMap(c.x, c.z, px, pz);
+      g.beginPath();
+      g.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+      g.fill();
+    });
+
+    // The player: a white arrow pointing along the heading.
+    var cx = SIZE / 2;
+    var cy = SIZE / 2;
+    var h = state.player.heading;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(Math.PI - h);
+    g.fillStyle = '#ffffff';
+    g.strokeStyle = '#222';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(0, -8);
+    g.lineTo(6, 6);
+    g.lineTo(-6, 6);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.restore();
+
+    g.restore();
+    // Rim.
+    g.strokeStyle = 'rgba(255,255,255,0.35)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2);
+    g.stroke();
+  }
+
+  window.CH = window.CH || {};
+  window.CH.minimap = {
+    init: init,
+    update: update
+  };
 })();
