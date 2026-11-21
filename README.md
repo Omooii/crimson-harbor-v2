@@ -4,6 +4,9 @@
 [![three.js](https://img.shields.io/badge/three.js-0.160.0-black.svg)](https://threejs.org)
 [![Offline](https://img.shields.io/badge/offline-static%20files-brightgreen.svg)](#tech-notes)
 [![make.fun bounty](https://img.shields.io/badge/make.fun-gta6--01-orange.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 An open-world crime game in a sun-soaked invented coastal city, built for the
 [make.fun "Make GTA 6" bounty](https://make.fun/bounty/gta6-01). Drive and walk
