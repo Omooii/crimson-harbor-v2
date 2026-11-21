@@ -1,207 +1,143 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crimson Harbor — Open-World Crime Game</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;overflow:hidden;background:#0b0b12;font-family:"Arial Narrow",Arial,Helvetica,sans-serif;color:#fff}
-  #app{position:fixed;inset:0}
-  #app canvas{display:block}
-  .panel{background:rgba(8,8,16,.62);border:1px solid rgba(255,255,255,.16);border-radius:6px;backdrop-filter:blur(2px)}
-  .gold{color:#ffd75e}.pink{color:#ff7ab8}.cyan{color:#7fe3ff}.red{color:#ff5252}.green{color:#7dff9a}
-  #hud{position:fixed;inset:0;pointer-events:none;z-index:5;display:none}
-  #hud.on{display:block}
-  /* top left: mission tracker */
-  #tracker{position:absolute;top:14px;left:14px;padding:10px 14px;min-width:290px;max-width:360px}
-  #tracker .mname{font-size:19px;font-weight:900;letter-spacing:1px;text-transform:uppercase}
-  #tracker .mname b{color:#ffd75e}
-  #tracker .stage{font-size:13px;color:#ffb26b;font-weight:700;letter-spacing:.5px}
-  #tracker .obj{font-size:15px;margin-top:3px;line-height:1.25}
-  #tracker .meta{display:flex;gap:14px;margin-top:6px;font-size:14px;font-weight:700}
-  #tracker .meta .t{color:#ff8a7a}
-  /* district panel */
-  #district{position:absolute;top:158px;left:14px;padding:9px 13px;width:290px}
-  #district .dname{font-size:17px;font-weight:900;letter-spacing:1px}
-  #district .street{font-size:13px;color:#cfd6e4}
-  #district .stand{margin-top:6px;font-size:12px;letter-spacing:1px;color:#ffd75e;font-weight:700}
-  .bar{height:8px;background:rgba(255,255,255,.18);border-radius:4px;overflow:hidden;margin-top:3px}
-  .bar i{display:block;height:100%;background:linear-gradient(90deg,#ff9a3d,#ffd75e);border-radius:4px}
-  /* police list */
-  #police{position:absolute;top:262px;left:14px;padding:9px 12px;width:290px}
-  #police h3{font-size:12px;letter-spacing:2px;color:#ff8a7a;margin-bottom:5px}
-  #police .unit{display:flex;justify-content:space-between;font-size:13.5px;line-height:1.55}
-  #police .unit .cs{color:#9fd8ff;font-weight:700}
-  #police .unit .role{color:#ffd75e;font-weight:700}
-  #police .unit .dist{color:#fff}
-  /* top right */
-  #topright{position:absolute;top:14px;right:14px;text-align:right}
-  #stars{font-size:30px;letter-spacing:4px;color:#ffd75e;text-shadow:0 0 12px rgba(255,180,0,.7)}
-  #stars .off{color:rgba(255,255,255,.28);text-shadow:none}
-  #wanted{margin-top:2px;font-size:15px;font-weight:900;letter-spacing:3px;color:#ff5252;display:none;text-shadow:0 0 8px rgba(0,0,0,.9),0 1px 3px #000}
-  #wanted.on{display:block}
-  #money{font-size:30px;font-weight:900;color:#7dff9a;text-shadow:0 2px 6px #000;margin-top:2px}
-  #rank{font-size:14px;font-weight:700;color:#fff}
-  #rank b{color:#ffd75e}
-  #radio{margin-top:6px;display:inline-block;padding:6px 12px;font-size:15px;font-weight:700}
-  #radio .st{color:#ff7ab8}
-  /* bottom left: health + minimap */
-  #vitals{position:absolute;left:14px;bottom:222px;width:264px;padding:8px 11px}
-  #vitals .row{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
-  #vitals .row+.row{margin-top:5px}
-  #vitals .lbl{width:58px;letter-spacing:1px}
-  #vitals .num{width:34px;text-align:right}
-  #vitals .bar{flex:1;margin-top:0}
-  #hpbar i{background:linear-gradient(90deg,#ff5252,#ff9a3d)}
-  #arbar i{background:linear-gradient(90deg,#4da3ff,#7fe3ff)}
-  #minimap-wrap{position:absolute;left:14px;bottom:14px;padding:6px}
-  #minimap{display:block;width:252px;height:188px;border-radius:4px}
-  #mm-label{position:absolute;left:20px;bottom:200px;font-size:12px;font-weight:700;letter-spacing:2px;color:#ffd75e;text-shadow:0 1px 3px #000}
-  /* bottom right: weapons + speed */
-  #weapons{position:absolute;right:14px;bottom:158px;display:flex;gap:6px}
-  .wslot{width:62px;padding:6px 4px 5px;text-align:center;border-radius:6px;background:rgba(8,8,16,.62);border:2px solid rgba(255,255,255,.18)}
-  .wslot.sel{border-color:#ffd75e;box-shadow:0 0 12px rgba(255,215,94,.55)}
-  .wslot.locked{opacity:.55}
-  .wslot .ic{font-size:22px;line-height:1}
-  .wslot .nm{font-size:11px;font-weight:800;letter-spacing:.5px;margin-top:3px}
-  .wslot .am{font-size:11px;color:#7fe3ff;font-weight:700}
-  .wslot .lk{font-size:10px;color:#ff8a7a;font-weight:900;letter-spacing:1px}
-  #speed{position:absolute;right:14px;bottom:14px;text-align:right;padding:10px 16px 12px;min-width:280px}
-  #speed .kph{font-size:64px;font-weight:900;line-height:.95;letter-spacing:-1px}
-  #speed .kph small{font-size:20px;color:#ffb26b}
-  #speed .car{font-size:17px;font-weight:900;letter-spacing:1px;color:#ffd75e}
-  #speed .cond{font-size:13px;font-weight:700;margin-top:4px}
-  #speed .bar{margin-top:3px}
-  #condbar i{background:linear-gradient(90deg,#7dff9a,#ffd75e)}
-  /* dialogue */
-  #dialogue{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);width:520px;display:none;padding:10px 14px 11px}
-  #dialogue.on{display:flex;gap:12px;align-items:center}
-  #dialogue img{width:64px;height:64px;border-radius:6px;border:2px solid #ffd75e;object-fit:cover;flex:none}
-  #dialogue .who{font-size:14px;font-weight:900;color:#ffd75e;letter-spacing:1px}
-  #dialogue .line{font-size:17px;line-height:1.3;margin-top:2px}
-  /* crew strip (shot 3) */
-  #crewstrip{position:absolute;right:14px;top:190px;width:218px;display:none;flex-direction:column;gap:8px}
-  #crewstrip.on{display:flex}
-  .crewcard{display:flex;gap:9px;padding:8px;align-items:center}
-  .crewcard img{width:46px;height:46px;border-radius:5px;border:2px solid #ff7ab8;object-fit:cover;flex:none}
-  .crewcard .cn{font-size:14px;font-weight:900}
-  .crewcard .cr{font-size:12px;color:#7fe3ff;font-weight:700}
-  .crewcard .ca{font-size:12px;color:#ffd75e}
-  /* center message */
-  #center{position:absolute;left:50%;top:34%;transform:translate(-50%,-50%);text-align:center;display:none}
-  #center.on{display:block}
-  #center .big{font-size:64px;font-weight:900;letter-spacing:3px;text-shadow:0 4px 24px rgba(0,0,0,.8)}
-  #center .sub{font-size:22px;font-weight:700;color:#ffd75e;margin-top:6px;text-shadow:0 2px 8px #000}
-  #hint{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);font-size:13px;color:rgba(255,255,255,.75);text-shadow:0 1px 3px #000;white-space:nowrap}
-  #clock{position:absolute;left:50%;top:12px;transform:translateX(-50%);font-size:15px;font-weight:700;letter-spacing:1px;text-shadow:0 1px 4px #000}
-  /* overlays */
-  .overlay{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;background:linear-gradient(160deg,rgba(20,6,24,.88),rgba(60,10,30,.82))}
-  .overlay.on{display:flex}
-  .menu{width:640px;max-width:92vw;text-align:center}
-  .menu h1{font-size:72px;font-weight:900;letter-spacing:4px;line-height:.95;background:linear-gradient(180deg,#ffe9a8,#ff7ab8 55%,#ff5252);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none}
-  .menu h2{font-size:19px;letter-spacing:6px;color:#ffd75e;margin-top:4px}
-  .menu p{margin-top:14px;font-size:16px;color:#e8dfe8;line-height:1.5}
-  .btn{display:block;width:340px;margin:10px auto;padding:13px;font-size:19px;font-weight:900;letter-spacing:2px;color:#1a0a12;background:linear-gradient(180deg,#ffd75e,#ff9a3d);border:none;border-radius:8px;cursor:pointer;pointer-events:auto}
-  .btn:hover{filter:brightness(1.1)}
-  .btn.ghost{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35)}
-  .keys{margin-top:16px;font-size:13.5px;color:#cfc4d4;line-height:1.7;text-align:left;display:inline-block}
-  .keys b{color:#ffd75e}
-  #stats-box{width:860px;max-width:94vw;max-height:92vh;overflow:auto;text-align:left;padding:22px 26px}
-  #stats-box h2{font-size:30px;letter-spacing:2px}
-  .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 30px;margin-top:12px;font-size:16px}
-  .statgrid .v{float:right;font-weight:900;color:#ffd75e}
-  .crewrow{display:flex;gap:12px;margin-top:14px}
-  .crewbig{flex:1;padding:12px;text-align:center}
-  .crewbig img{width:84px;height:84px;border-radius:8px;border:2px solid #ff7ab8;object-fit:cover}
-  .crewbig .cn{font-size:17px;font-weight:900;margin-top:6px}
-  .crewbig .cr{font-size:13px;color:#7fe3ff;font-weight:700}
-  .crewbig .ca{font-size:13px;color:#ffd75e;margin-top:4px;line-height:1.35}
-  .crewbig .key{margin-top:7px;font-size:12px;color:#cfc4d4}
-  #mstat{margin-top:14px;font-size:15px;line-height:1.7}
-  #mstat .done{color:#7dff9a}.nxt{color:#ffd75e}
-  .close-hint{margin-top:14px;text-align:center;color:#cfc4d4;font-size:14px}
-</style>
+<title>Crimson Harbor</title>
+<link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
-<div id="app"></div>
-<div id="hud">
-  <div id="clock"></div>
-  <div id="tracker" class="panel">
-    <div class="mname" id="m-name">MISSION 1/4 · <b>FIRST GEAR</b></div>
-    <div class="stage" id="m-stage">STAGE 1/3</div>
-    <div class="obj" id="m-obj">Drive to the pickup at Harbor Market.</div>
-    <div class="meta"><span id="m-dist">📍 412 m</span><span class="t" id="m-time">⏱ 3:58</span><span class="gold" id="m-pay">PAY $2,500</span></div>
-  </div>
-  <div id="district" class="panel">
-    <div class="dname" id="d-name">PALM SHORES</div>
-    <div class="street" id="d-street">Ocean Blvd · Crimson Harbor</div>
-    <div class="stand" id="d-stand">STANDING: RESPECTED · 1,240 RP</div>
-    <div class="bar"><i id="d-bar" style="width:62%"></i></div>
-  </div>
-  <div id="police" class="panel">
-    <h3>🚨 HARBOR PD — ACTIVE UNITS</h3>
-    <div id="police-units"></div>
-  </div>
-  <div id="topright">
-    <div id="stars"></div>
-    <div id="wanted">⚠ IN SIGHT — LOSE THE COPS</div>
-    <div id="money">$0</div>
-    <div id="rank">RANK <b>STREET ROOKIE</b> · <b>1,240 RP</b></div>
-    <div id="radio" class="panel"><span class="st">SOL 98.5</span> ♫ Neon Palms — The Breakers</div>
-  </div>
-  <div id="vitals" class="panel">
-    <div class="row"><span class="lbl">HEALTH</span><div class="bar" id="hpbar"><i style="width:100%"></i></div><span class="num" id="hpnum">100</span></div>
-    <div class="row"><span class="lbl">ARMOUR</span><div class="bar" id="arbar"><i style="width:50%"></i></div><span class="num" id="arnum">50</span></div>
-  </div>
-  <div id="mm-label">CRIMSON HARBOR</div>
-  <div id="minimap-wrap" class="panel"><canvas id="minimap" width="252" height="188"></canvas></div>
-  <div id="weapons"></div>
-  <div id="speed" class="panel">
-    <div class="kph"><span id="kph">0</span> <small>KM/H</small></div>
-    <div class="car" id="carname">VORTEX GT</div>
-    <div class="cond">CONDITION <span id="condnum">100%</span></div>
-    <div class="bar" id="condbar"><i style="width:100%"></i></div>
-  </div>
-  <div id="dialogue" class="panel"><img id="dlg-img" alt=""><div><div class="who" id="dlg-who">MARA</div><div class="line" id="dlg-line"></div></div></div>
-  <div id="crewstrip"></div>
-  <div id="center"><div class="big" id="center-big"></div><div class="sub" id="center-sub"></div></div>
-  <div id="hint">WASD drive / walk · E enter car · F attack · Q weapon · R radio · Z/X/C crew · Tab stats · P pause</div>
-</div>
-<div id="title" class="overlay on">
-  <div class="menu">
-    <h1>CRIMSON<br>HARBOR</h1>
-    <h2>AN OPEN-WORLD CRIME GAME</h2>
-    <p>Sun, salt and sirens. Build your crew, run the jobs, and own the harbor —<br>one golden-hour getaway at a time.</p>
-    <button class="btn" id="btn-play">▶ PLAY</button>
-    <button class="btn ghost" id="btn-continue">CONTINUE — LOAD SAVE</button>
-    <button class="btn ghost" id="btn-freeroam">FREE ROAM — NO MISSIONS</button>
-    <div class="keys">
-      <b>W A S D</b> drive / walk &nbsp;·&nbsp; <b>Space</b> handbrake &nbsp;·&nbsp; <b>E</b> enter / exit car, interact<br>
-      <b>F</b> attack / fire &nbsp;·&nbsp; <b>Q</b> or <b>1–6</b> weapons &nbsp;·&nbsp; <b>R</b> radio &nbsp;·&nbsp; <b>Z X C</b> crew abilities<br>
-      <b>Tab</b> stats &amp; crew &nbsp;·&nbsp; <b>P</b> / <b>Esc</b> pause &nbsp;·&nbsp; <b>M</b> start next mission &nbsp;·&nbsp; <b>V</b> camera
+<canvas id="game" aria-label="Crimson Harbor: an open-world crime game. Drive, run jobs, and stay ahead of Harbor PD."></canvas>
+
+<!-- ============ HUD (hidden until a run starts) ============ -->
+<div id="hud" style="display:none">
+  <div id="vignette"></div>
+
+  <div id="job-panel" class="panel">
+    <div id="mission-title">JOB 1/8 — HARBOR HANDOFF</div>
+    <div id="mission-stage">Stage 1/2 · Get in your Vortex GT</div>
+    <div class="job-row">
+      <span id="mission-timer">5:00</span>
+      <span id="mission-pay">PAY $800</span>
+    </div>
+    <div class="job-row">
+      <span id="mission-arrow">▲</span>
+      <span id="mission-dist">—</span>
+      <span id="clock-readout">12:00 · DAY</span>
     </div>
   </div>
-</div>
-<div id="pause" class="overlay">
-  <div class="menu">
-    <h2 style="font-size:40px">PAUSED</h2>
-    <p id="pause-info"></p>
-    <button class="btn" id="btn-resume">RESUME</button>
-    <button class="btn ghost" id="btn-save">SAVE GAME</button>
-    <button class="btn ghost" id="btn-quit">QUIT TO TITLE</button>
+
+  <div id="rank-panel" class="panel">
+    <div id="rank-text">RANK 7 · ROOK</div>
+    <div class="bar"><div id="rank-bar"></div></div>
+    <div id="radio-line">Harbor FM 101.2 — 'Sunset Over the Pier' by The Harbor Lights</div>
+  </div>
+
+  <div id="money-panel" class="panel">
+    <div id="money">$1,250</div>
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="wanted-banner" style="display:none">WANTED</div>
+    <div id="sight-banner" style="display:none">○ UNSEEN</div>
+    <div class="badges"><span id="day-badge">DAY 3</span><span id="tune-badge">TUNE LV 4</span></div>
+  </div>
+
+  <div id="district-panel" class="panel">
+    <div id="district-name">Harborview</div>
+    <div id="street-name">Harbor Blvd</div>
+    <div id="district-title">Harbor Legend</div>
+    <div class="bar"><div id="rp-bar"></div></div>
+    <div id="rp-text">3,200 RP</div>
+  </div>
+
+  <div id="crew-panel">
+    <div class="panel-label">CREW</div>
+    <div id="crew-list"></div>
+  </div>
+
+  <div id="police-panel" class="panel">
+    <div id="police-title">HARBOR PD — PATROL</div>
+    <div id="police-list"><div class="police-none">No units in pursuit</div></div>
+  </div>
+
+  <div id="banner" style="display:none"><span id="banner-text"></span></div>
+
+  <div id="dialogue-bar" style="display:none">
+    <div id="dialogue-who">S</div>
+    <div id="dialogue-line"></div>
+  </div>
+
+  <div id="vitals" class="panel">
+    <div class="vital"><span id="health-text">HEALTH 100</span><div class="bar"><div id="health-bar"></div></div></div>
+    <div class="vital"><span id="armour-text">ARMOUR 50</span><div class="bar"><div id="armour-bar"></div></div></div>
+  </div>
+
+  <div id="weapon-slots"></div>
+
+  <div id="dash">
+    <div id="speed-cluster" class="panel">
+      <div id="speed-num">0</div>
+      <div class="speed-unit">KM/H</div>
+      <div id="car-name">ON FOOT</div>
+      <div id="car-cond">CONDITION —</div>
+    </div>
+    <div id="minimap-wrap"><canvas id="minimap" width="176" height="176"></canvas></div>
   </div>
 </div>
-<div id="stats" class="overlay">
-  <div id="stats-box" class="panel">
-    <h2>STATS &amp; CREW</h2>
-    <div class="statgrid" id="statgrid"></div>
-    <div class="crewrow" id="crewrow"></div>
-    <div id="mstat"></div>
-    <div class="close-hint">Press <b>Tab</b> or <b>Esc</b> to close · Crew abilities: <b>Z</b> Mara boost · <b>X</b> Dex ghost · <b>C</b> Rosa armour</div>
+
+<!-- ============ TITLE MENU ============ -->
+<div id="title-menu">
+  <div class="title-inner">
+    <div class="title-kicker">A HARBOR CITY STORY</div>
+    <h1>CRIMSON<br>HARBOR</h1>
+    <p class="title-sub">You are Rook, wheelman of the Crimson crew. Eight jobs stand between you
+      and the big getaway — and Harbor PD is already watching.</p>
+    <div class="title-buttons">
+      <button id="btn-new" class="big-btn">▶ NEW GAME</button>
+      <button id="btn-continue" class="big-btn ghost" style="display:none">↻ CONTINUE</button>
+    </div>
+    <div class="controls-grid">
+      <span><b>W A S D</b> move / drive</span><span><b>Mouse</b> look</span>
+      <span><b>Shift</b> sprint</span><span><b>E</b> enter / exit car</span>
+      <span><b>Space</b> handbrake</span><span><b>F</b> punch</span>
+      <span><b>Click</b> shoot</span><span><b>1–7</b> weapons</span>
+      <span><b>Q / R / T</b> crew abilities</span><span><b>H</b> horn · <b>M</b> mute</span>
+      <span><b>Esc</b> pause</span><span><b>Save</b> in the pause menu</span>
+    </div>
+    <p class="title-foot">An original game. No network, no downloads — everything runs from these files.</p>
   </div>
 </div>
-<script src="vendor/three.min.js"></script>
-<script type="module" src="src/main.js"></script>
+
+<!-- ============ PAUSE MENU ============ -->
+<div id="pause-menu" style="display:none">
+  <div class="menu-box">
+    <h2>PAUSED</h2>
+    <button id="btn-resume" class="big-btn">▶ RESUME</button>
+    <button id="btn-pause-stats" class="big-btn ghost">STATS</button>
+    <button id="btn-pause-save" class="big-btn ghost">SAVE GAME</button>
+    <button id="btn-pause-mute" class="big-btn ghost">MUTE</button>
+    <button id="btn-pause-quit" class="big-btn ghost">QUIT TO TITLE</button>
+  </div>
+</div>
+
+<!-- ============ STATS ============ -->
+<div id="stats-screen" style="display:none">
+  <div class="menu-box">
+    <h2>ROOK'S STATS</h2>
+    <div id="stats-body"></div>
+    <button id="btn-stats-close" class="big-btn">CLOSE</button>
+  </div>
+</div>
+
+<!-- ============ BUSTED / WASTED ============ -->
+<div id="over-screen" style="display:none">
+  <div class="menu-box">
+    <h2 id="over-title">WASTED</h2>
+    <p id="over-sub"></p>
+    <button id="btn-respawn" class="big-btn">↻ GET BACK UP</button>
+  </div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./js/main.js"></script>
 </body>
 </html>
