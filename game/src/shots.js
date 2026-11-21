@@ -1,166 +1,137 @@
-// Screenshot staging behind ?shot=drive|foot|chase|mission&seed=7. Each scene sets the real
-// game state (mission, wanted, money, time of day), places the player, police, traffic and
-// pedestrians for a lively frame, then plays the real simulation forward so everything is
-// mid-motion. Shot mode also keeps an autopilot driving so the chase never stalls.
-import { MISSIONS } from './config.js';
-import { driveCar, spawnCar } from './vehicles.js';
-import { updateTraffic } from './traffic.js';
-import { updatePedestrians, scarePeds } from './pedestrians.js';
+// Deterministic screenshot staging (?shot=drive|foot|chase|mission).
+// Each shot sets a fixed golden-hour (or alive-night) scene: close police,
+// helicopter spotlight, traffic, pedestrians, a late mission, big money,
+// a ticking timer, and dialogue with a portrait — then freezes the sim
+// so the frame is reproducible.
+import { Car } from './vehicles.js';
+import { CREW } from './missions.js';
 
-function setMission(G, id, stage, timer) {
-  const def = MISSIONS.find((m) => m.id === id);
-  G.mission = { def, stage, timer };
-  G.missions.active = G.mission;
-  const s = def.stages[stage];
-  G.missions.placeMarker(s.x, s.z);
+function setMission(game, index, stage, timeLeft) {
+  const m = game.missions;
+  m.index = index; m.stage = stage; m.active = true; m.timeLeft = timeLeft;
+  m.completed = m.completed.map((_, i) => i < index);
+  game.updateMarker();
 }
-function setStats(G, money, rp, rank, health, armour) {
-  const p = G.player;
-  p.money = money; p.rp = rp; p.rank = rank; p.health = health; p.armour = armour;
+
+function farUnits(game, px, pz, heading) {
+  // two extra units ahead, setting a roadblock — fills the police list to 6+
+  const spots = [[26, -4], [48, 5]];
+  const roles = ['ROADBLOCK', 'FIRING'];
+  const css = ['HPD-18', 'HPD-55'];
+  spots.forEach(([ahead, side], i) => {
+    const x = px + Math.sin(heading) * ahead + Math.cos(heading) * side;
+    const z = pz + Math.cos(heading) * ahead - Math.sin(heading) * side;
+    const car = new Car(game.scene, x, z, heading + Math.PI, 'HPD Interceptor', 0xffffff, true);
+    const lb = car.mesh.userData.lightBar;
+    lb.red.color.setHex(0xff2222); lb.blue.color.setHex(0x001155);
+    game.police.cruisers.push({ car, callsign: css[i], role: roles[i], bustedTimer: 0, ramBoost: 0 });
+  });
 }
-function putPlayerInCar(G, kind, x, z, heading, speed) {
-  const car = spawnCar(G, kind, x, z, heading);
-  car.speed = speed;
-  G.player.car = car;
-  G.player.mesh.visible = false;
-  G.player.pos.set(x, 0, z);
-  G.player.heading = heading;
-  return car;
-}
-function movePedsNear(G, spots) {
-  let i = 0;
-  for (const p of G.peds) {
-    if (i >= spots.length) break;
-    p.x = spots[i][0]; p.z = spots[i][1];
-    p.state = 'walk'; p.down = 0; p.panic = 0;
-    p.targetX = p.x + (Math.random() - 0.5) * 20; p.targetZ = p.z + (Math.random() - 0.5) * 20;
-    p.mesh.position.set(p.x, 0, p.z);
-    i++;
+
+function settle(game, px, pz, heliDx, heliDz, heliY) {
+  // run the frozen police update a few times so the heli + beam settle,
+  // then place the heli low and close so it is IN frame with its beam
+  game.police.frozen = true;
+  for (let i = 0; i < 30; i++) game.police.update(0.05, { x: px, z: pz, heading: 0, speed: 0 }, true);
+  const h = game.police.heli;
+  if (h) {
+    h.x = px + (heliDx ?? 10); h.z = pz + (heliDz ?? -8); h.y = heliY ?? 27;
+    game.police.updateHeli(0, px, pz);
   }
+  game.world.update(0, new THREE.Vector3(px, 0, pz));
 }
-function nearestRoad(v) {
-  let best = -210, bd = 1e9;
-  for (let r = -210; r <= 210; r += 60) { const d = Math.abs(v - r); if (d < bd) { bd = d; best = r; } }
-  return best;
-}
-function moveTrafficOnto(G, spots) {
-  let i = 0;
-  for (const c of G.traffic) {
-    if (i >= spots.length) break;
-    const [x, z, heading, speed] = spots[i];
-    c.x = x; c.z = z; c.heading = heading; c.speed = speed;
-    c.driver.alongX = Math.abs(Math.sin(heading)) > 0.5;
-    c.driver.road = c.driver.alongX ? nearestRoad(z) : nearestRoad(x);
-    c.driver.dir = c.driver.alongX ? (Math.sin(heading) > 0 ? 1 : -1) : (Math.cos(heading) > 0 ? 1 : -1);
-    c.mesh.position.set(x, 0, z);
-    i++;
+
+function finish(game, S, camPos, lookAt, dlg) {
+  game.camera.position.set(...camPos);
+  game.camera.lookAt(...lookAt);
+  game.hud.hideCenter();
+  if (dlg) {
+    const c = CREW.find(c => c.id === dlg.crew);
+    game.hud.showDialogue(c.name, dlg.line, c.portrait, 1e9);
   }
+  game.hud.setWeapon(S.weapon, S.ammo[S.weapon]);
+  game.updateHUD();
+  game.shotFreeze = true;
 }
-// Play the world forward `seconds` at 60 Hz with the player car on autopilot.
-function simulate(G, seconds, laneX) {
-  const dt = 1 / 60;
-  const steps = Math.floor(seconds / dt);
-  for (let i = 0; i < steps; i++) {
-    const p = G.player;
-    if (p.car) {
-      const want = Math.atan2(laneX - p.car.x, 30);
-      let dh = want - p.car.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
-      driveCar(G, p.car, 1, Math.max(-1, Math.min(1, dh * 2.5)), false, dt);
-      p.pos.set(p.car.x, 0, p.car.z);
-      p.heading = p.car.heading;
-    }
-    updateTraffic(G, dt);
-    updatePedestrians(G, dt);
-    G.police.update(dt);
-    G.particles.update(dt);
-  }
+
+function inCarAt(game, S, x, z, heading, speedKmh, damage) {
+  const car = game.starterCar;
+  car.x = x; car.z = z; car.heading = heading;
+  car.mesh.position.set(x, 0, z); car.mesh.rotation.y = heading;
+  game.player.x = x; game.player.z = z; game.player.heading = heading;
+  game.enterCar(car);
+  car.speed = speedKmh / 3.6; car.damage = damage; // after enterCar (it clamps speed)
 }
-export function stageShot(name, G) {
-  const p = G.player;
-  G.clockHour = 11;
-  G.shotLane = null;
-  if (name === 'drive') {
-    // COVER: bright beach-road chase, 4 stars, helicopter, mission 3 stage 3/4.
-    G.clockHour = 11.4;
-    setStats(G, 12480, 8200, 7, 86, 40);
-    setMission(G, 3, 2, 134);
-    putPlayerInCar(G, 'sports', 210, -60, 0, 26);
-    G.police.setWanted(4);
-    G.police.spawnCruiser(208, -92, 0).speed = 24;
-    G.police.spawnCruiser(213, -78, 0).speed = 25;
-    G.police.spawnHeli();
-    G.heliRadius = 45; G.heliHeight = 16;
-    moveTrafficOnto(G, [[206.8, 40, Math.PI, 11], [206.8, 110, Math.PI, 10], [213.2, 130, 0, 9]]);
-    movePedsNear(G, [[230, -30], [236, -10], [228, 20], [242, 35], [232, 55], [246, 70], [225, 90], [238, 105]]);
-    spawnCar(G, 'scooter', 219, -20, Math.PI / 2).parked = true;
-    G.shotLane = 210;
-    simulate(G, 2.2, 210);
-    if (G.police.heli) G.police.heli.angle = 1.15; // heli ahead, clear of the HUD, in frame
-  } else if (name === 'foot') {
-    // On foot on the boardwalk, facing south-east: beach life ahead, traffic on the road
-    // to the right, a call from Nadia.
-    G.clockHour = 15.2;
-    setStats(G, 4250, 2600, 4, 100, 25);
-    setMission(G, 2, 0, 412);
-    p.pos.set(219, 0, 20); p.heading = 0.35; p.car = null; p.mesh.visible = true;
-    p.mesh.position.copy(p.pos); p.mesh.rotation.y = p.heading;
-    G.police.setWanted(0);
-    moveTrafficOnto(G, [[213.2, 25, 0, 10], [206.8, 75, Math.PI, 11], [213.2, 110, 0, 9]]);
-    movePedsNear(G, [[222, 35], [230, 45], [226, 60], [234, 72], [221, 88], [238, 58], [228, 98], [242, 82], [224, 112], [232, 122]]);
-    G.hud.showDialogue('NADIA CROSS', 'The case is at the Northgate meet, Kai. Get it back — and try not to start a war doing it.', 30);
-    simulate(G, 1.2, 210);
-  } else if (name === 'chase') {
-    // Close pursuit at golden hour, Gus on the phone, 5 stars.
-    G.clockHour = 17.5;
-    setStats(G, 9100, 5400, 6, 72, 15);
-    setMission(G, 3, 1, 268);
-    putPlayerInCar(G, 'sedan', 150, -30, 0, 26);
-    G.police.setWanted(5);
-    G.police.spawnCruiser(150, -58, 0).speed = 26;
-    G.police.spawnCruiser(146.5, -66, 0).speed = 25;
-    G.police.spawnCruiser(153.5, -72, 0).speed = 24;
-    G.police.spawnHeli();
-    G.heliRadius = 45; G.heliHeight = 20;
-    moveTrafficOnto(G, [[146.8, 50, Math.PI, 10], [153.2, 100, 0, 9]]);
-    movePedsNear(G, [[142, -10], [158, 5], [141, 25], [159, 40]]);
-    scarePeds(G, 150, -30, 40);
-    G.hud.showDialogue('GUS HARLOW', 'They are all over you, kid — cut through the docks and lose them on the shore road!', 30);
-    G.shotLane = 150;
-    simulate(G, 1.2, 150);
-    if (G.police.heli) G.police.heli.angle = 1.35; // heli over the road ahead, in frame
-  } else if (name === 'mission') {
-    // Final mission at night: docks, city lights, spotlight, 3 stars.
-    G.clockHour = 22.1;
-    setStats(G, 18900, 11800, 8, 94, 60);
-    setMission(G, 4, 3, 189);
-    putPlayerInCar(G, 'van', 30, 120, 0, 18);
-    G.police.setWanted(3);
-    G.police.spawnCruiser(28, 92, 0).speed = 20;
-    G.police.spawnCruiser(33, 80, 0).speed = 21;
-    moveTrafficOnto(G, [[26.8, 190, Math.PI, 8], [33.2, 200, 0, 9]]);
-    movePedsNear(G, [[20, 230], [45, 240], [18, 200]]);
-    G.shotLane = 30;
-    simulate(G, 1.2, 30);
+
+export function stageShot(shot, game, S) {
+  const W = game.world;
+  if (shot === 'drive') {
+    // COVER: golden-hour beach-road chase, final mission, 4 stars.
+    W.time = 18.5;
+    S.money = 27450; S.rp = 2480; S.hp = 78; S.armour = 45;
+    S.weapon = 3; // SMG
+    setMission(game, 3, 2, 92); // The Crimson Job, stage 3/3, 1:32 left
+    inCarAt(game, S, 280, 60, Math.PI, 142, 18);
+    game.police.setWanted(4);
+    game.police.stageChase(280, 60, Math.PI, 3);
+    farUnits(game, 280, 60, Math.PI);
+    game.traffic.stageNear(280, 60, 5);
+    game.peds.stageNear(280, 60, 6, false);
+    game.peds.stageNear(330, 60, 6, true);
+    settle(game, 280, 60, 12, -14, 20);
+    finish(game, S, [280, 8, 92], [281, 2, 46],
+      { crew: 'mara', line: 'Four stars and the whole harbor behind us — don\'t you dare slow down now!' });
+  } else if (shot === 'foot') {
+    // On foot in a busy market street at golden hour, mid/late mission, 3 stars.
+    W.time = 18.35;
+    S.money = 18300; S.rp = 1860; S.hp = 92; S.armour = 60;
+    S.weapon = 2; // pistol
+    setMission(game, 2, 1, 134); // Night Tide, stage 2/5, 2:14 left
+    const p = game.player;
+    p.x = -80; p.z = 80; p.heading = Math.PI;
+    p.mesh.position.set(p.x, 0, p.z); p.mesh.rotation.y = p.heading;
+    game.police.setWanted(3);
+    game.police.stageChase(-80, 80, Math.PI, 3);
+    farUnits(game, -80, 80, Math.PI);
+    game.traffic.stageNear(-80, 80, 5);
+    game.peds.stageNear(-80, 80, 12, false);
+    settle(game, -80, 80, 10, -12, 18);
+    finish(game, S, [-85, 4.8, 99], [-79, 3.5, 60],
+      { crew: 'dex', line: 'Checkpoints are live and Harbor PD is already on us. Run the tide — no brakes!' });
+  } else if (shot === 'chase') {
+    // Second chase angle: downtown / north bridge, 5 stars, crew strip on.
+    W.time = 18.55;
+    S.money = 25800; S.rp = 2610; S.hp = 64; S.armour = 30;
+    S.weapon = 4; // rifle
+    setMission(game, 3, 2, 65); // final mission, 1:05 left
+    inCarAt(game, S, 0, -210, Math.PI, 158, 31);
+    game.police.setWanted(5);
+    game.police.stageChase(0, -210, Math.PI, 4);
+    farUnits(game, 0, -210, Math.PI);
+    game.traffic.stageNear(0, -210, 4);
+    game.peds.stageNear(0, -210, 8, false);
+    game.hud.showCrewStrip(true);
+    settle(game, 0, -210, 12, -14, 20);
+    finish(game, S, [-8, 6.5, -185], [1, 4, -232],
+      { crew: 'rosa', line: 'They\'re ramming us! Hold the line — the bridge is ours!' });
+  } else if (shot === 'mission') {
+    // Final mission at night — but ALIVE: lamps, neon, traffic, people, heli.
+    W.time = 22.0;
+    S.money = 31200; S.rp = 2940; S.hp = 71; S.armour = 55;
+    S.weapon = 3; // SMG
+    setMission(game, 3, 2, 58); // final mission, 0:58 left
+    inCarAt(game, S, 0, 24, Math.PI, 121, 24);
+    game.police.setWanted(5);
+    game.police.stageChase(0, 24, Math.PI, 3);
+    farUnits(game, 0, 24, Math.PI);
+    game.traffic.stageNear(0, 24, 6);
+    game.peds.stageNear(0, 24, 10, false);
+    settle(game, 0, 24, 12, -14, 20);
+    finish(game, S, [-8, 5.6, 47], [2, 4, 4],
+      { crew: 'mara', line: 'Vault cash is in the trunk. Lighthouse, fifty-eight seconds — FLY!' });
   } else {
-    stageShot('drive', G);
-    return;
-  }
-  G.cameraCtl.snap();
-  G.hudDirty = true;
-}
-// Live autopilot: keeps the shot chase driving while the capture waits.
-export function shotAutopilot(G, dt) {
-  const p = G.player;
-  if (!p.car || G.shotLane === null || G.shotLane === undefined) return;
-  const want = Math.atan2(G.shotLane - p.car.x, 30);
-  let dh = want - p.car.heading;
-  while (dh > Math.PI) dh -= Math.PI * 2; while (dh < -Math.PI) dh += Math.PI * 2;
-  driveCar(G, p.car, 1, Math.max(-1, Math.min(1, dh * 2.5)), false, dt);
-  p.pos.set(p.car.x, 0, p.car.z);
-  p.heading = p.car.heading;
-  if (p.car.z > 250) { // loop back north so the chase never ends
-    p.car.z = -240; p.car.x = G.shotLane;
-    for (const c of G.police.cars) { c.z -= 480; }
+    // unknown shot: plain free-roam golden hour
+    W.time = 18.4;
+    game.shotFreeze = true;
   }
 }

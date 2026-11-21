@@ -1,5 +1,6 @@
-// Tiny static server for game/ (Node 22, standard library only): `node serve.ts`
-// serves the game on http://localhost:8080 (or --port <n>). Development convenience only.
+// A tiny static server for game/ (Node 22, standard library only), so the
+// entry can be played locally without a build step: `node serve.ts` serves
+// game/ on http://localhost:8080 (or --port <n>). Development convenience only.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -14,17 +15,12 @@ const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ?
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.wasm': 'application/wasm',
-  '.txt': 'text/plain; charset=utf-8',
 };
 
 createServer((request, response) => {
@@ -58,5 +54,5 @@ createServer((request, response) => {
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`Crimson Harbor is on http://localhost:${port}`);
+  console.log(`game/ is on http://localhost:${port}`);
 });

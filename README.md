@@ -1,61 +1,73 @@
-# crimson-harbor-v2
+# Crimson Harbor
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/Omooii/crimson-harbor-v2/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![three.js](https://img.shields.io/badge/three.js-0.160.0-black.svg)](https://threejs.org)
+[![Offline](https://img.shields.io/badge/offline-static%20files-brightgreen.svg)](#tech-notes)
+[![make.fun bounty](https://img.shields.io/badge/make.fun-gta6--01-orange.svg)](https://make.fun/bounty/gta6-01)
 
-**Crimson Harbor** — a complete open-world crime game in the spirit of GTA 6, built for the
-[make.fun "Make GTA 6" bounty](https://make.fun/bounty/gta6-01). Kai Mercer just got out, and
-the sun-soaked coastal city of Crimson Harbor owes him a living. Steal cars, outrun Harbor PD,
-and work four story missions for Gus Harlow and Nadia Cross — on foot and behind the wheel.
+An open-world crime game in a sun-soaked invented coastal city, built for the
+[make.fun "Make GTA 6" bounty](https://make.fun/bounty/gta6-01). Drive and walk
+through Crimson Harbor, run jobs with your crew, outrun Harbor PD under a
+golden-hour sky — and pull off the Crimson Job.
 
-## What is in the game
+![Cover: golden-hour beach-road chase](screenshots/1-drive.jpg)
 
-- **A living city**: ~90 procedural buildings across six districts, a road grid, a beach with
-  boardwalk and palms, a working harbor with docks and boats, day/night cycle, traffic, and
-  pedestrians who flee from gunfire and speeding cars.
-- **Driving**: five vehicle kinds (sedan, sports coupe, van, taxi, scooter) with arcade physics,
-  nitro, handbrake drifts, damage and wrecks — any parked or traffic car can be stolen.
-- **Wanted system**: five stars, pursuing cruisers that ram, foot cops who can bust you, and a
-  police helicopter with a spotlight at high wanted levels.
-- **Missions and story**: four jobs in four stages each, with a mission tracker, timers, stage
-  dialogue with character portraits, pay and RP.
-- **Combat**: fists, pistol and SMG with ammo and reloads, hitscan shooting, and a crew with
-  usable abilities (field repair, bribes, helicopter jamming).
-- **HUD and polish**: rectangular minimap with live dots, numeric health/armour, weapon slots,
-  rank/RP bar, district trust, police response list, car damage, radio stations with
-  synthesized music, synthesized engine/siren/gunfire audio, title menu, pause, stats screen,
-  and localStorage autosave.
+## How to play
 
-Everything is original: the city, characters, vehicles, names, story, art and sound are all
-made for this game. It plays offline in a desktop browser from static files — no network
-request, no build step.
-
-## Run it
+No install, no network: serve `game/` with any static file server and open
+`index.html` in a desktop browser (Chrome recommended).
 
 ```sh
-node serve.ts
+node serve.ts   # serves game/ on http://localhost:8080
 ```
 
-Then open http://localhost:8080 in desktop Chrome.
+Click **PLAY** to start the story (Mission 1 begins right away),
+**CONTINUE** to load your autosave, or **FREE ROAM** to explore with no
+missions. Your progress autosaves every 30 seconds and after every mission.
 
-Controls: **WASD** drive / move · **E** enter or exit a car · **F** punch · **Click** shoot ·
-**1–3** weapons · **R** reload · **Space** handbrake / jump · **Shift** nitro / sprint ·
-**Q** radio station · **Tab** stats · **Esc** pause.
+## Controls
 
-## Screenshots
+| Key | Action |
+| --- | --- |
+| W A S D | Drive / walk (A/D steer and turn) |
+| Space | Handbrake |
+| E | Enter / exit car, interact with mission markers |
+| F or mouse click | Attack / fire weapon |
+| Q or 1–6 | Cycle / select weapon |
+| R | Next radio station |
+| Z / X / C | Crew abilities: Mara boost / Dex ghost / Rosa armour |
+| M | Start the next mission |
+| V | Camera distance |
+| Tab | Stats & crew screen |
+| P / Esc | Pause |
 
-The four screenshots in `screenshots/` are real renders of the game, staged through its own
-`?shot=drive|foot|chase|mission&seed=7` scenes (see `shots.json` and `game/src/shots.js`).
+## Missions
 
-## Layout
+1. **First Gear** — $2,500. Pick up Mara's package at Harbor Market and deliver it to the Palm Row garage.
+2. **Salt & Smoke** — $6,000. Steal the Vortex GT from the Coral Ave showroom, lose a 2-star wanted level, deliver to the chop shop.
+3. **Night Tide** — $12,000. Meet Dex at the pier, then hit three checkpoints along Ocean Blvd and North Bridge against the clock.
+4. **The Crimson Job** — $25,000. Hit the Meridian Bank vault, then escape a 4-star manhunt to the lighthouse drop-off.
 
-- `game/index.html` — the page and the HUD
-- `game/src/` — one-job modules: `city`, `vehicles`, `traffic`, `pedestrians`, `player`,
-  `police`, `missions`, `hud`, `minimap`, `camera`, `audio`, `particles`, `shots`, and more
-- `game/vendor/three.min.js` — three.js 0.160.0, vendored
-- `main.ts` — the entry program: copies `game/` and `screenshots/` and writes `dossier.json`
-- `serve.ts` — the local static server
+## The crew
+
+- **Mara Voss — Driver.** *Slipstream:* +25% top speed for 10 seconds.
+- **Dex Marlowe — Hacker.** *Ghost:* drop 1 wanted star instantly.
+- **Rosa Delgado — Muscle.** *Adrenal:* restore 50 armour on the spot.
+
+## Features
+
+- A living procedural city: colourful facades, shop signs, awnings, a beach with umbrellas and sunbathers, palms, a pier, a lighthouse and a bridge.
+- Traffic and pedestrians with panic behaviour; stealing cars; a 5-star wanted system with ramming cruisers, roadblocks, flanking units and a police helicopter with a visible spotlight beam.
+- Four staged story missions with dialogue, timers and pay; a big rectangular minimap; health/armour numbers; rank and RP; six weapon slots; three procedural radio stations plus a synthesized engine and sirens (WebAudio, no audio files).
+- A full day/night cycle with golden-hour lighting, long shadows, lit windows, street lamps and neon at night.
+- Autosave to localStorage; deterministic screenshot mode (`?shot=drive|foot|chase|mission`) for reproducible captures.
+
+## Tech notes
+
+- **Stack:** three.js 0.160.0 (vendored under `game/vendor/`, UMD build), plain ES modules, no build step, no network requests at runtime.
+- **Structure:** `game/index.html` (HUD + menus), `game/src/main.js` (game loop, input, save), `world.js` (city + sky), `vehicles.js` (cars + traffic), `people.js` (pedestrians), `police.js` (wanted + helicopter), `missions.js` (story + crew), `hud.js` (HUD + minimap + stats), `audio.js` (WebAudio synth), `shots.js` (screenshot staging), `util.js` (helpers, procedural portraits and textures).
+- **Entry program:** `main.ts` (Node 22, standard library only) copies `game/` and `screenshots/` to the output directory and writes `dossier.json` with the vendored make.fun library. Run it with `MAKEFUN_OUTPUT_DIR=out node main.ts`.
+- Everything in the game — city, characters, vehicles, names, story, art, sound and music — is original and procedural; no Rockstar Games name, logo, character, map or asset is used.
 
 ## License
 
@@ -63,4 +75,5 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-<sub>Entered on [make.fun](https://make.fun/?ref=pmqap4j3&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+Built for the make.fun bounty — [play the competition](https://make.fun/bounty/gta6-01).
+New to make.fun? Sign up with my referral link: https://make.fun/r/pmqap4j3
