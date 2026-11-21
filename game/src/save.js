@@ -1,63 +1,23 @@
-// save.js — autosave to localStorage: cash, mission progress, the
-// player's position and the clock. Loads are defensive: a corrupt or
-// foreign save is ignored, never fatal.
-(function () {
-  'use strict';
-
-  var KEY = window.CH.config.saveKey;
-
-  function load() {
-    try {
-      var raw = window.localStorage.getItem(KEY);
-      if (!raw) return null;
-      var data = JSON.parse(raw);
-      if (!data || typeof data !== 'object') return null;
-      if (typeof data.cash !== 'number') return null;
-      return data;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function save(state) {
-    try {
-      var data = {
-        cash: Math.round(state.cash),
-        missionIndex: state.missionIndex,
-        completed: state.completed.slice(),
-        px: Math.round(state.px * 100) / 100,
-        pz: Math.round(state.pz * 100) / 100,
-        playSeconds: Math.round(state.playSeconds),
-        xp: Math.round(state.xp || 0),
-        health: Math.round(state.health === undefined ? 100 : state.health),
-        armour: Math.round(state.armour || 0),
-        standing: state.standing || {},
-        stats: state.stats || {},
-        clockMinutes: Math.round(state.clockMinutes || 1050),
-        savedAt: Date.now()
-      };
-      window.localStorage.setItem(KEY, JSON.stringify(data));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function clear() {
-    try {
-      window.localStorage.removeItem(KEY);
-    } catch (e) {}
-  }
-
-  function hasSave() {
-    return load() !== null;
-  }
-
-  window.CH = window.CH || {};
-  window.CH.save = {
-    load: load,
-    save: save,
-    clear: clear,
-    hasSave: hasSave
+// localStorage autosave: money, rank, missions, position, stats. Shot mode never saves.
+import { SAVE_KEY } from './config.js';
+export function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+export function hasSave() { return loadSave() !== null; }
+export function writeSave(G) {
+  if (G.shot) return;
+  const p = G.player;
+  const data = {
+    v: 4, money: p.money, rp: p.rp, rank: p.rank,
+    missionsDone: G.missionsDone, missionId: G.mission ? G.mission.def.id : 0,
+    x: p.pos.x, z: p.pos.z, heading: p.heading, health: p.health, armour: p.armour,
+    wanted: p.wanted, hour: G.clockHour, ammo: p.ammo, weapon: p.weapon,
+    trust: G.trust, stats: G.stats, radio: G.radioStation,
+    carKind: p.car ? p.car.kind : null, carDmg: p.car ? p.car.damage : 0,
   };
-})();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch { /* storage full/blocked */ }
+}
+export function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ } }

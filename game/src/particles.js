@@ -1,118 +1,65 @@
-// particles.js — one pooled THREE.Points cloud for every burst in the
-// game: crash sparks, muzzle flashes, cash sparkles and exhaust puffs.
-// A single draw call, recycled slots, no per-particle meshes.
-(function () {
-  'use strict';
-
-  var MAX = 300;
-  var points = null;
-  var positions = null;
-  var colors = null;
-  var vel = null; // per-particle velocity (x, y, z)
-  var life = null; // seconds remaining
-  var maxLife = null;
-  var gravity = null;
-  var cursor = 0;
-  var geo = null;
-
-  function init(scene) {
-    positions = new Float32Array(MAX * 3);
-    colors = new Float32Array(MAX * 3);
-    vel = new Float32Array(MAX * 3);
-    life = new Float32Array(MAX);
-    maxLife = new Float32Array(MAX);
-    gravity = new Float32Array(MAX);
-    for (var i = 0; i < MAX; i++) {
-      positions[i * 3 + 1] = -100; // park unused particles below the world
-    }
-    geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    var mat = new THREE.PointsMaterial({
-      size: 0.55, vertexColors: true, transparent: true, opacity: 0.95,
-      depthWrite: false, sizeAttenuation: true
-    });
-    points = new THREE.Points(geo, mat);
-    points.frustumCulled = false;
-    scene.add(points);
-  }
-
-  function spawn(x, y, z, vx, vy, vz, r, g, b, ttl, grav) {
-    var i = cursor;
-    cursor = (cursor + 1) % MAX;
-    positions[i * 3] = x;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = z;
-    vel[i * 3] = vx;
-    vel[i * 3 + 1] = vy;
-    vel[i * 3 + 2] = vz;
-    colors[i * 3] = r;
-    colors[i * 3 + 1] = g;
-    colors[i * 3 + 2] = b;
-    life[i] = ttl;
-    maxLife[i] = ttl;
-    gravity[i] = grav;
-  }
-
-  function burst(x, y, z, count, color, speed, ttl) {
-    for (var i = 0; i < count; i++) {
-      var a = Math.random() * Math.PI * 2;
-      var up = Math.random() * 0.9 + 0.2;
-      var s = speed * (0.4 + Math.random() * 0.8);
-      spawn(
-        x, y, z,
-        Math.cos(a) * s, up * s * 0.8, Math.sin(a) * s,
-        color[0], color[1], color[2],
-        ttl * (0.6 + Math.random() * 0.7), -9
-      );
-    }
-  }
-
-  function sparks(x, z) {
-    burst(x, 1.2, z, 16, [1.0, 0.75, 0.25], 7, 0.6);
-  }
-
-  function muzzle(x, z, fx, fz) {
-    burst(x + fx, 1.4, z + fz, 6, [1.0, 0.9, 0.4], 4, 0.18);
-  }
-
-  function cashBurst(x, z) {
-    burst(x, 1.5, z, 26, [0.4, 1.0, 0.5], 5, 1.1);
-  }
-
-  function puff(x, z) {
-    spawn(x, 0.5, z, (Math.random() - 0.5), 1.2, (Math.random() - 0.5), 0.6, 0.6, 0.62, 0.7, 1.5);
-  }
-
-  function update(dt) {
-    var any = false;
-    for (var i = 0; i < MAX; i++) {
-      if (life[i] <= 0) continue;
-      any = true;
-      life[i] -= dt;
-      if (life[i] <= 0) {
-        positions[i * 3 + 1] = -100;
-        continue;
+// One pooled THREE.Points particle system: skid smoke, crash sparks, fire, muzzle flashes,
+// splashes and confetti bursts. Cheap, no per-particle meshes.
+import * as THREE from 'three';
+import { canvasTexture } from './util.js';
+const MAX = 420;
+export function createParticles(G) {
+  const tex = canvasTexture(THREE, 32, 32, (x) => {
+    const g = x.createRadialGradient(16, 16, 2, 16, 16, 15);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 32, 32);
+  });
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(MAX * 3), col = new Float32Array(MAX * 3), size = new Float32Array(MAX);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('size', new THREE.BufferAttribute(size, 1));
+  const mat = new THREE.PointsMaterial({ size: 1.6, map: tex, vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  G.scene.add(points);
+  const P = {
+    n: 0, vel: new Float32Array(MAX * 3), life: new Float32Array(MAX), maxLife: new Float32Array(MAX),
+    grav: new Float32Array(MAX), grow: new Float32Array(MAX),
+    spawn(x, y, z, vx, vy, vz, life, r, g, b, s, grav) {
+      if (P.n >= MAX) return;
+      const i = P.n++;
+      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+      P.vel[i * 3] = vx; P.vel[i * 3 + 1] = vy; P.vel[i * 3 + 2] = vz;
+      col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
+      size[i] = s; P.life[i] = life; P.maxLife[i] = life; P.grav[i] = grav || 0; P.grow[i] = 0;
+    },
+    burst(x, y, z, n, color, speed, life, s) {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, e = (Math.random() - 0.3) * speed;
+        P.spawn(x, y, z, Math.cos(a) * speed * Math.random(), Math.random() * speed * 0.7, Math.sin(a) * speed * Math.random(), life * (0.5 + Math.random()), color[0], color[1], color[2], s, -e * 0.1);
       }
-      vel[i * 3 + 1] += gravity[i] * dt;
-      positions[i * 3] += vel[i * 3] * dt;
-      positions[i * 3 + 1] += vel[i * 3 + 1] * dt;
-      positions[i * 3 + 2] += vel[i * 3 + 2] * dt;
-      if (positions[i * 3 + 1] < 0.1) positions[i * 3 + 1] = 0.1;
-    }
-    if (any) {
+    },
+    smoke(x, y, z) { P.spawn(x, y, z, (Math.random() - 0.5) * 1.5, 1.2 + Math.random(), (Math.random() - 0.5) * 1.5, 1.4, 0.55, 0.55, 0.55, 2.2, 0.4); },
+    fire(x, y, z) { P.spawn(x, y, z, (Math.random() - 0.5) * 1, 2 + Math.random() * 2, (Math.random() - 0.5) * 1, 0.6, 1, 0.45 + Math.random() * 0.3, 0.1, 1.8, 0); },
+    update(dt) {
+      let i = 0;
+      while (i < P.n) {
+        P.life[i] -= dt;
+        if (P.life[i] <= 0) {
+          const l = --P.n;
+          for (let k = 0; k < 3; k++) { pos[i * 3 + k] = pos[l * 3 + k]; col[i * 3 + k] = col[l * 3 + k]; P.vel[i * 3 + k] = P.vel[l * 3 + k]; }
+          size[i] = size[l]; P.life[i] = P.life[l]; P.maxLife[i] = P.maxLife[l]; P.grav[i] = P.grav[l];
+          continue;
+        }
+        P.vel[i * 3 + 1] += P.grav[i] * dt;
+        pos[i * 3] += P.vel[i * 3] * dt; pos[i * 3 + 1] += P.vel[i * 3 + 1] * dt; pos[i * 3 + 2] += P.vel[i * 3 + 2] * dt;
+        const f = P.life[i] / P.maxLife[i];
+        size[i] = Math.max(0.1, size[i] * (1 - dt * 0.4));
+        col[i * 3] *= 1; col[i * 3 + 1] *= 1; col[i * 3 + 2] *= 1;
+        if (f < 0.3) { col[i * 3] *= 0.96; col[i * 3 + 1] *= 0.96; col[i * 3 + 2] *= 0.96; }
+        i++;
+      }
+      geo.setDrawRange(0, P.n);
       geo.attributes.position.needsUpdate = true;
       geo.attributes.color.needsUpdate = true;
-    }
-  }
-
-  window.CH = window.CH || {};
-  window.CH.particles = {
-    init: init,
-    sparks: sparks,
-    muzzle: muzzle,
-    cashBurst: cashBurst,
-    puff: puff,
-    update: update
+      geo.attributes.size.needsUpdate = true;
+    },
   };
-})();
+  return P;
+}

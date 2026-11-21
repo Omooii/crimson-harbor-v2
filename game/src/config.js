@@ -1,192 +1,81 @@
-// config.js — every tunable number of Crimson Harbor in one place: the
-// city grid, the sunset palette, the vehicles, the story missions and the
-// key bindings. Nothing here touches the DOM or the renderer.
-(function () {
-  'use strict';
-
-  // City layout: 6 x 6 blocks separated by roads. Roads run north-south
-  // (avenues, constant x) and east-west (streets, constant z).
-  var BLOCK = 46; // block side, in world units
-  var ROAD = 14; // road width
-  var GRID = 6; // blocks per side
-  var PITCH = BLOCK + ROAD;
-  var HALF = (GRID * BLOCK + (GRID + 1) * ROAD) / 2; // 187
-
-  // Road centre lines, from west to east / north to south.
-  var avenues = [];
-  var streets = [];
-  for (var i = 0; i <= GRID; i++) {
-    avenues.push(-HALF + i * PITCH);
-    streets.push(-HALF + i * PITCH);
-  }
-  // Block centres: each block sits between two roads, so its centre is
-  // half a road plus half a block past the road before it.
-  var blockCenters = [];
-  for (var j = 0; j < GRID; j++) {
-    blockCenters.push(-HALF + ROAD / 2 + BLOCK / 2 + j * PITCH);
-  }
-
-  var cfg = {
-    BLOCK: BLOCK,
-    ROAD: ROAD,
-    GRID: GRID,
-    HALF: HALF,
-    avenues: avenues,
-    streets: streets,
-    blockCenters: blockCenters,
-    // Playable bounds (the harbour water and the south beach lie beyond).
-    bounds: { minX: -205, maxX: 225, minZ: -205, maxZ: 245 },
-    // Water lines: harbour to the east, open sea to the south.
-    harborX: 198,
-    seaZ: 232,
-
-    // Landmarks the story and the missions point at. Block centres are
-    // -157, -97, -37, 23, 83, 143; roads sit at -187, -127, -67, -7, 53,
-    // 113, 173. Every mission leg runs along a road, so a driver can
-    // reach each marker without cutting across a block.
-    garage: { x: -37, z: 83, name: 'Harbor Garage' },
-    spawn: { x: -16, z: 88, heading: 2.2 },
-    taxiSpot: { x: -3.5, z: 78, heading: Math.PI },
-    sportsSpot: { x: -89, z: -63.5, heading: Math.PI / 2 },
-    hotel: { x: -7, z: -37, name: 'Sunset Hotel' },
-    beach: { x: -7, z: 205, name: 'South Beach' },
-    dealership: { x: -97, z: -37, name: 'Bayview Motors' },
-    warehouse: { x: 143, z: 53, name: 'Pier 9 Warehouse' },
-    dock: { x: 205, z: 143, name: 'Harbor Dock' },
-    bank: { x: 53, z: -97, name: 'First Harbor Bank' },
-
-    // Sunset palette.
-    skyTop: 0x2e1a52,
-    skyMid: 0xff7e5f,
-    skyLow: 0xffc98a,
-    sunColor: 0xffd76a,
-    fogColor: 0xf2a06b,
-    fogNear: 120,
-    fogFar: 420,
-    groundColor: 0x3d3a44,
-    sidewalkColor: 0x8d8794,
-    roadColor: 0x2e2c33,
-    sandColor: 0xe8c98f,
-    waterColor: 0x2e6f8e,
-
-    // Vehicles: accel (units/s^2), top speed (units/s), turn (rad/s at speed).
-    cars: {
-      sedan: { accel: 14, topSpeed: 26, turn: 2.1, body: 0x7a8ba0, label: 'Sedan' },
-      taxi: { accel: 15, topSpeed: 27, turn: 2.2, body: 0xf2b705, label: 'Taxi' },
-      truck: { accel: 9, topSpeed: 19, turn: 1.6, body: 0x9a6b4f, label: 'Truck' },
-      sports: { accel: 22, topSpeed: 38, turn: 2.6, body: 0xc0392b, label: 'Sports' },
-      police: { accel: 19, topSpeed: 34, turn: 2.5, body: 0x1c2733, label: 'Police' }
-    },
-
-    // The story: four jobs from Mara, who runs the Harbor Garage.
-    // Each job also carries Mara's own words: one line when the job
-    // starts, one when each step opens, one when the job is done.
-    missions: [
-      {
-        id: 'fare',
-        name: 'First Fare',
-        reward: 500,
-        giver: 'Mara',
-        intro: 'Mara needs a driver she can trust. Take her taxi, pick up the client at the Sunset Hotel, drop them at South Beach.',
-        lines: {
-          start: 'Taxi\u2019s gassed up. Don\u2019t scratch her — she\u2019s my favorite.',
-          done: 'Clean run. You\u2019re hired, kid.'
-        },
-        steps: [
-          { type: 'enter', car: 'taxi', text: 'Get in Mara\u2019s taxi' },
-          { type: 'goto', at: 'hotel', radius: 20, text: 'Pick up the client at the Sunset Hotel', line: 'Client\u2019s waiting at the hotel. Look sharp.' },
-          { type: 'goto', at: 'beach', radius: 20, text: 'Drop the client at South Beach', line: 'They\u2019re in. South Beach, avenue all the way.' }
-        ]
-      },
-      {
-        id: 'wheels',
-        name: 'Hot Wheels',
-        reward: 750,
-        giver: 'Mara',
-        intro: 'A buyer wants the red Comet GT at Bayview Motors. Borrow it. Bring it to the garage, no questions.',
-        lines: {
-          start: 'Red Comet GT at Bayview Motors. Bring it home quiet.',
-          done: 'The buyer will love this one. Nice work.'
-        },
-        steps: [
-          { type: 'enter', car: 'sports', at: 'dealership', text: 'Take the Comet GT from Bayview Motors' },
-          { type: 'goto', at: 'garage', radius: 18, text: 'Bring the Comet GT to the Harbor Garage', line: 'You got her. Now bring her in — easy does it.' }
-        ]
-      },
-      {
-        id: 'harbor',
-        name: 'Harbor Run',
-        reward: 1000,
-        giver: 'Mara',
-        intro: 'A crate at Pier 9 has to reach the Harbor Dock before the tide turns. 150 seconds. Don\u2019t be late.',
-        timeLimit: 150,
-        lines: {
-          start: 'Crate\u2019s at Pier 9. The dock closes with the tide — 150 seconds.',
-          done: 'Right on time. The tide can wait.'
-        },
-        steps: [
-          { type: 'goto', at: 'warehouse', radius: 16, text: 'Pick up the crate at Pier 9 Warehouse' },
-          { type: 'goto', at: 'dock', radius: 16, text: 'Deliver the crate to the Harbor Dock', line: 'Crate\u2019s loaded. Harbor Dock, and don\u2019t stop for anyone.' }
-        ]
-      },
-      {
-        id: 'score',
-        name: 'The Big Score',
-        reward: 2000,
-        giver: 'Mara',
-        intro: 'One briefcase at First Harbor Bank. Take it, and the whole city will be looking for you. Lose them, bring it home.',
-        lines: {
-          start: 'One briefcase. In, out, gone. The whole city will be looking.',
-          done: 'We\u2019re rich. Don\u2019t spend it all in one place.'
-        },
-        steps: [
-          { type: 'goto', at: 'bank', radius: 14, text: 'Grab the briefcase at First Harbor Bank', wanted: 3 },
-          { type: 'goto', at: 'garage', radius: 18, text: 'Lose the heat and bring the briefcase to the garage', line: 'You have it. Lose the heat, then come home.' }
-        ]
-      }
-    ],
-
-    // Districts: five named quarters. Standing rises when you finish
-    // work in a quarter and falls when you get busted there.
-    districts: ['Northgate', 'Old Town', 'West End', 'Harborfront', 'Southside'],
-
-    // Driver ranks, by experience. Steps pay 25 XP, a finished job 100.
-    ranks: [
-      { xp: 0, name: 'Rookie' },
-      { xp: 100, name: 'Wheelman' },
-      { xp: 250, name: 'Getaway Ace' },
-      { xp: 500, name: 'Harbor Legend' }
-    ],
-
-    // Driver abilities: Nitro burns a meter while held; Quick Repair
-    // and Bribe run on cooldowns.
-    abilities: {
-      nitro: { name: 'Nitro', key: 'SHIFT', drain: 22, regen: 12 },
-      repair: { name: 'Quick Repair', key: 'R', cooldown: 30 },
-      bribe: { name: 'Bribe', key: 'B', cost: 150, cooldown: 5 }
-    },
-
-    keys: {
-      forward: ['KeyW', 'ArrowUp'],
-      back: ['KeyS', 'ArrowDown'],
-      left: ['KeyA', 'ArrowLeft'],
-      right: ['KeyD', 'ArrowRight'],
-      run: ['ShiftLeft', 'ShiftRight'],
-      nitro: ['ShiftLeft', 'ShiftRight'],
-      enter: ['KeyE'],
-      action: ['KeyF'],
-      weapon: ['KeyQ'],
-      brake: ['Space'],
-      repair: ['KeyR'],
-      bribe: ['KeyB'],
-      stats: ['Tab'],
-      pause: ['KeyP', 'Escape'],
-      mute: ['KeyM']
-    },
-
-    saveKey: 'crimson-harbor-save-v3'
-  };
-
-  window.CH = window.CH || {};
-  window.CH.config = cfg;
-})();
+// World constants, car and weapon definitions, crew, radio and mission scripts.
+// All names, characters and story are original to Crimson Harbor.
+export const WORLD = {
+  size: 560,           // playable ground spans -280..280
+  roadGap: 60,         // distance between parallel roads
+  roadWidth: 13,
+  beachX: 224,         // sand starts here (east of the boardwalk)
+  waterX: 272,         // ocean starts here
+  harborZ: 216,        // docks start here (south)
+  waterZ: 272,
+  blockInset: 8,       // buildings sit this far inside a block
+};
+export const ROADS = [-210, -150, -90, -30, 30, 90, 150, 210];
+export const DISTRICTS = [
+  { name: 'MARINA BAY', x0: 120, z0: -280, x1: 280, z1: -30, trust: 50 },
+  { name: 'OLD TOWN', x0: -120, z0: -120, x1: 120, z1: 60, trust: 50 },
+  { name: 'DOCKSIDE', x0: -280, z0: 120, x1: 120, z1: 280, trust: 50 },
+  { name: 'PALM HEIGHTS', x0: -280, z0: -280, x1: -120, z1: -120, trust: 50 },
+  { name: 'NORTHGATE', x0: -120, z0: -280, x1: 120, z1: -120, trust: 50 },
+  { name: 'SUNCREST', x0: 120, z0: -30, x1: 280, z1: 280, trust: 50 },
+];
+export const CARS = {
+  sedan:   { name: 'HARBOR SEDAN', top: 27, accel: 13, grip: 2.6, color: 0x8fa3b8, len: 4.4, wid: 2.0 },
+  sports:  { name: 'VORTEX GT',    top: 40, accel: 19, grip: 3.1, color: 0xc1121f, len: 4.3, wid: 2.0 },
+  van:     { name: 'MULE VAN',     top: 23, accel: 10, grip: 2.2, color: 0xd8d3c3, len: 5.0, wid: 2.1 },
+  taxi:    { name: 'SUNSET TAXI',  top: 29, accel: 14, grip: 2.7, color: 0xf4a261, len: 4.4, wid: 2.0 },
+  scooter: { name: 'WASP SCOOTER', top: 24, accel: 15, grip: 3.6, color: 0x2ec4b6, len: 2.2, wid: 0.9 },
+  police:  { name: 'HPD CRUISER',  top: 34, accel: 17, grip: 3.0, color: 0x1d3557, len: 4.5, wid: 2.0 },
+};
+export const WEAPONS = [
+  { id: 'fists', name: 'FISTS', dmg: 12, mag: Infinity, reserve: Infinity, rate: 0.45, range: 2.6, auto: false },
+  { id: 'pistol', name: 'PISTOL', dmg: 26, mag: 12, reserve: 96, rate: 0.28, range: 60, auto: false },
+  { id: 'smg', name: 'SMG', dmg: 16, mag: 30, reserve: 180, rate: 0.09, range: 55, auto: true },
+];
+export const CREW = [
+  { id: 'gus', name: 'GUS HARLOW', role: 'MECHANIC · GARAGE', ability: 'FIELD REPAIR — $150', seed: 11, skin: '#c98d64', hair: '#8a8d91', shirt: '#3a5a40', style: 2, cost: 150, cd: 45 },
+  { id: 'nadia', name: 'NADIA CROSS', role: 'FIXER · MARINA', ability: 'BRIBE — LOSE 1 STAR · $300', seed: 23, skin: '#8d5524', hair: '#1c1c1c', shirt: '#7b2cbf', style: 1, cost: 300, cd: 60 },
+  { id: 'leo', name: 'LEO FINCH', role: 'HACKER · NORTHGATE', ability: 'JAM HELICOPTER · 20s', seed: 37, skin: '#f1c27d', hair: '#5b3a1e', shirt: '#0a9396', style: 0, cost: 0, cd: 90 },
+];
+export const RADIO = [
+  { name: 'HARBOR FM 101.2', track: 'Midnight Cruise — The Velvets', scale: [0, 3, 5, 7, 10], tempo: 112, base: 220 },
+  { name: 'WAVE RADIO 88.4', track: 'Salt Air — Marina Blue', scale: [0, 2, 4, 7, 9], tempo: 96, base: 196 },
+  { name: 'STATIC FM 93.9', track: 'Night Shift — Copper Kings', scale: [0, 3, 6, 7, 10], tempo: 128, base: 233 },
+];
+// Mission scripts: 4 jobs, 4 stages each. Markers sit on roads so they are drivable.
+export const MISSIONS = [
+  { id: 1, name: 'FIRST GEAR', giver: 'GUS HARLOW', pay: 800, rp: 350, time: 420,
+    intro: 'Kai. The coupe is tuned and waiting at my shop. Take the package to Nadia at the marina — no scratches, no cops.',
+    stages: [
+      { text: 'Go to Harlow Auto Works', x: -150, z: -90 },
+      { text: 'Get in the Vortex GT', x: -150, z: -90, car: true },
+      { text: 'Drive to the Marina drop', x: 150, z: 150 },
+      { text: 'Deliver the package to Nadia', x: 150, z: 150, foot: true },
+    ] },
+  { id: 2, name: 'SMOKE SIGNAL', giver: 'NADIA CROSS', pay: 1500, rp: 600, time: 480,
+    intro: 'A rival crew lifted my case. Take it back from the meet at Northgate — and if the law shows up, be somewhere else.',
+    stages: [
+      { text: 'Reach the meet in Northgate', x: -30, z: -210 },
+      { text: 'Grab the case', x: -30, z: -210, foot: true },
+      { text: 'Lose the tail — reach the safehouse', x: -210, z: 150, wanted: 2 },
+      { text: 'Hand the case to Nadia', x: -210, z: 150, foot: true },
+    ] },
+  { id: 3, name: 'THE LONG WAY HOME', giver: 'GUS HARLOW', pay: 2500, rp: 900, time: 540,
+    intro: 'That coupe is hotter than August. The whole Harbor PD wants it. Take the beach road south — and whatever you do, do not stop.',
+    stages: [
+      { text: 'Reach the beach road', x: 210, z: -150 },
+      { text: 'Outrun the cordon — head south', x: 210, z: 30, wanted: 3 },
+      { text: 'Lose the helicopter on the shore road', x: 210, z: 150, wanted: 4 },
+      { text: 'Reach the chop shop', x: 210, z: 210, car: true },
+    ] },
+  { id: 4, name: 'NIGHT TIDE', giver: 'NADIA CROSS', pay: 5000, rp: 1500, time: 600,
+    intro: 'Last job, Kai. The cargo is at the docks and the buyer leaves at midnight. Move it quiet, move it fast — then we are done.',
+    stages: [
+      { text: 'Reach the docks at night', x: 30, z: 210 },
+      { text: 'Load the cargo', x: 30, z: 210, foot: true },
+      { text: 'Escape the dock blockade', x: -150, z: 210, wanted: 3 },
+      { text: 'Deliver to the airfield buyer', x: -210, z: -210, car: true },
+    ] },
+];
+export const RANK_RP = [0, 500, 1200, 2200, 3500, 5200, 7500, 10500, 14000, 18000, 23000];
+export const SAVE_KEY = 'crimson-harbor-save-v4';
